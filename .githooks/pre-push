@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks pushes while private code is tracked or anywhere in history.
+exec sh "$(git rev-parse --show-toplevel)/scripts/check-private.sh" --history
