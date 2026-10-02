@@ -1,1 +1,5 @@
 /target
+
+# Paid services (cloud, cross-device sync) live here and are NEVER committed.
+# See docs/PRIVATE_SERVICES.md. scripts/check-private.sh enforces this rule.
+/src/private/

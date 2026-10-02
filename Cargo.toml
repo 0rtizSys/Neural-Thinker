@@ -2,6 +2,13 @@
 name = "neural-thinker"
 version = "0.1.0"
 edition = "2024"
+description = "Markdown-centric task planner with a neural-graph view"
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/0rtizSys/Neural-Thinker"
+# Commercial distribution is not allowed; never publish to crates.io.
+publish = false
+# Paid services are developed in src/private/, which is never part of this package.
+exclude = ["src/private"]
 
 [dependencies]
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence", "wayland", "x11"] }
