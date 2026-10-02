@@ -26,3 +26,23 @@ NT ships with a minimal baseline and is meant to be extended by the user:
 | Core | Rust | Memory safety; mitigates classic memory-corruption vulnerabilities. |
 | Rendering | OpenGL or DirectX | Maximum compatibility, currently targeting Windows 10 and Windows 11. |
 | Performance-critical paths | C, C++ or Assembly | Performance on low-end hardware. Assembly is currently Windows-only. |
+
+## Status
+
+Phase 1 (basic editor) is implemented:
+
+- Plain-text Markdown editor window with a live rendered preview (editor only, split, or preview only).
+- New, Open, Save and Save As, with unsaved-change prompts on New, Open and exit.
+- Root folder selection; file dialogs start in the root folder, and the choice persists across runs.
+
+The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. Markdown is rendered with `egui_commonmark`.
+
+## Building
+
+Requires a stable Rust toolchain (edition 2024).
+
+```sh
+cargo run --release
+```
+
+Keyboard shortcuts: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as.
