@@ -37,6 +37,18 @@ impl Document {
         self.path.as_deref()
     }
 
+    /// Points the document at a new location after its file was moved or renamed.
+    pub fn set_path(&mut self, path: PathBuf) {
+        self.path = Some(path);
+    }
+
+    /// Forgets the backing file (e.g. after it was deleted). The text is kept and
+    /// marked as unsaved.
+    pub fn detach(&mut self) {
+        self.path = None;
+        self.saved_text.clear();
+    }
+
     /// File name for display; "Untitled" when the document has never been saved.
     pub fn display_name(&self) -> String {
         self.path
@@ -142,6 +154,18 @@ mod tests {
         reopened.text.push_str(" two");
         reopened.save().unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "one two");
+    }
+
+    #[test]
+    fn detach_keeps_text_as_unsaved() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut doc = Document::new();
+        doc.text = "keep me".into();
+        doc.save_as(&dir.path().join("a.md")).unwrap();
+        doc.detach();
+        assert!(doc.path().is_none());
+        assert!(doc.is_dirty());
+        assert_eq!(doc.text, "keep me");
     }
 
     #[test]
