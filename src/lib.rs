@@ -6,8 +6,13 @@
 
 mod app;
 mod document;
+mod graph;
+mod graph_view;
+mod links;
 mod outline;
+mod quick_add;
 pub mod services;
+mod theme;
 mod vault;
 
 /// Re-exported so service crates build against the same egui version.
