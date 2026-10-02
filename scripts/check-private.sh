@@ -32,6 +32,12 @@ if [ -n "$tracked" ]; then
     echo "$tracked" | sed 's/^/    /' >&2
 fi
 
+# 2b. The local AI decision log must never be tracked either.
+ai_log=$(git ls-files --cached -- .ai-log)
+if [ -n "$ai_log" ]; then
+    fail ".ai-log/ is tracked or staged (run: git rm -r --cached .ai-log)"
+fi
+
 # 3. No tracked file may carry the private marker.
 # shellcheck disable=SC2086
 marked=$(git grep --cached -l -I -F "$MARKER" -- . $EXCLUDES)
