@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks commits that would publish private (paid services) code.
+exec sh "$(git rev-parse --show-toplevel)/scripts/check-private.sh"
