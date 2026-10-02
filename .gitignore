@@ -6,3 +6,6 @@
 
 # Log of AI changes and decisions; local only, never committed.
 /.ai-log/
+
+# Internal planning notes; local only, never committed.
+/schema.md
