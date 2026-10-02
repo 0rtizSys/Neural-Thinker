@@ -29,7 +29,8 @@ NT ships with a minimal baseline and is meant to be extended by the user:
 
 ## Status
 
-Phase 1 (basic editor) and phase 2 (navigation and layouts) are implemented:
+Phases 1 (basic editor), 2 (navigation and layouts) and 3 (quick add and graph prototype) are
+implemented:
 
 - Markdown editor with a live rendered preview (editor only, split, or preview only).
 - New, Open, Save and Save As, with unsaved-change prompts on New, Open and exit.
@@ -39,8 +40,21 @@ Phase 1 (basic editor) and phase 2 (navigation and layouts) are implemented:
     "+ Note" and "+ Folder" buttons, and a right-click menu to create, rename and delete
     (only empty folders can be deleted). The tree refreshes when the window regains focus.
   - **Outline**: headings of the open note; clicking one moves the editor to it.
-- Layout presets in the View menu: Writer, Split, Reader and Focus; sidebar and status bar
-  toggles; light, dark or system theme.
+- Layout presets in the View menu: Writer, Split, Reader, Focus and Graph; sidebar and status
+  bar toggles; light, dark or system theme.
+- **Quick add** (`Ctrl+Space`): a one-line capture popup. `Enter` saves the text as a new note in
+  the root folder's `Inbox/` folder (created on demand, never overwriting); `Shift+Enter` also
+  opens it; `Esc` closes. `[[links]]` typed there become graph edges.
+- **Graph view** (`Ctrl+G`): every note is a node, every `[[wiki link]]` or relative Markdown
+  link (`[text](other.md)`) an edge.
+  - 2D: drag a node to move it, drag the background to pan, scroll to zoom, click a node to
+    open it. Hovering highlights the node's direct links.
+  - 3D: the same graph with depth; drag to orbit, `Shift`+drag to pan, a depth slider scales
+    the third axis, optional slow rotation. Far nodes fade.
+  - The force-directed layout stops simulating once it settles, so an idle graph does not use
+    the CPU or GPU. Repulsion is O(n²), suitable for vaults of a few hundred notes.
+- Minimal default theme with one accent color and short (~0.15 s) transitions: the sidebar
+  slides, popups fade, status messages fade out.
 
 The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. Markdown is rendered with `egui_commonmark`.
 
@@ -53,7 +67,8 @@ cargo run --release
 ```
 
 Keyboard shortcuts: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as,
-`Ctrl+B` toggle sidebar, `Ctrl +` / `Ctrl -` / `Ctrl 0` zoom.
+`Ctrl+B` toggle sidebar, `Ctrl+Space` quick add, `Ctrl+G` graph view,
+`Ctrl +` / `Ctrl -` / `Ctrl 0` zoom.
 
 The first build enables the repository's git hooks (`core.hooksPath = .githooks`) unless a
 hooks path is already configured.

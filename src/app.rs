@@ -8,9 +8,11 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{DEFAULT_EXTENSION, Document};
-use crate::outline;
+use crate::graph::Graph;
+use crate::graph_view::{GraphSettings, GraphView};
 use crate::services::{Services, VaultEvent};
 use crate::vault::{self, Entry, EntryKind};
+use crate::{outline, quick_add, theme};
 
 const SETTINGS_KEY: &str = "nt_settings";
 
@@ -20,6 +22,11 @@ const SHORTCUT_SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND
 const SHORTCUT_SAVE_AS: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S);
 const SHORTCUT_SIDEBAR: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::B);
+const SHORTCUT_QUICK_ADD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Space);
+const SHORTCUT_GRAPH: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::G);
+
+/// Seconds a status message stays before fading out.
+const STATUS_SECONDS: f64 = 4.0;
 
 /// How the editor area is split between source and rendered Markdown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +34,7 @@ enum ViewMode {
     Edit,
     Split,
     Preview,
+    Graph,
 }
 
 /// Which list the sidebar shows.
@@ -43,10 +51,17 @@ enum Layout {
     Split,
     Reader,
     Focus,
+    Graph,
 }
 
 impl Layout {
-    const ALL: [Layout; 4] = [Layout::Writer, Layout::Split, Layout::Reader, Layout::Focus];
+    const ALL: [Layout; 5] = [
+        Layout::Writer,
+        Layout::Split,
+        Layout::Reader,
+        Layout::Focus,
+        Layout::Graph,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -54,6 +69,7 @@ impl Layout {
             Layout::Split => "Split (files + editor + preview)",
             Layout::Reader => "Reader (files + preview)",
             Layout::Focus => "Focus (editor only)",
+            Layout::Graph => "Graph (files + graph)",
         }
     }
 
@@ -63,6 +79,7 @@ impl Layout {
             Layout::Split => (true, ViewMode::Split),
             Layout::Reader => (true, ViewMode::Preview),
             Layout::Focus => (false, ViewMode::Edit),
+            Layout::Graph => (true, ViewMode::Graph),
         }
     }
 }
@@ -78,6 +95,7 @@ struct Settings {
     sidebar_tab: SidebarTab,
     status_bar_visible: bool,
     show_all_files: bool,
+    graph: GraphSettings,
 }
 
 impl Default for Settings {
@@ -90,6 +108,7 @@ impl Default for Settings {
             sidebar_tab: SidebarTab::Files,
             status_bar_visible: true,
             show_all_files: false,
+            graph: GraphSettings::default(),
         }
     }
 }
@@ -156,6 +175,27 @@ pub struct NtApp {
     show_services: bool,
     show_about: bool,
     was_focused: bool,
+
+    graph_view: GraphView,
+    /// Rebuild the graph before it is next shown.
+    graph_stale: bool,
+    /// The editor mode to return to when a note is opened from the graph.
+    text_mode: ViewMode,
+    quick_add: QuickAdd,
+    /// The status message being shown and when it appeared, for fading it out.
+    shown_status: (String, f64),
+    /// "Start writing" was chosen on the welcome screen.
+    welcome_dismissed: bool,
+}
+
+/// The quick add popup's state.
+#[derive(Default)]
+struct QuickAdd {
+    open: bool,
+    text: String,
+    focus_requested: bool,
+    /// Where the toolbar button is, so clicking it is not taken as a click outside.
+    button: Option<egui::Rect>,
 }
 
 impl NtApp {
@@ -164,6 +204,11 @@ impl NtApp {
             .storage
             .and_then(|s| eframe::get_value(s, SETTINGS_KEY))
             .unwrap_or_default();
+        theme::apply(&cc.egui_ctx);
+        let text_mode = match settings.view_mode {
+            ViewMode::Graph => ViewMode::Split,
+            mode => mode,
+        };
 
         let mut app = Self {
             settings,
@@ -184,6 +229,12 @@ impl NtApp {
             show_services: false,
             show_about: false,
             was_focused: true,
+            graph_view: GraphView::default(),
+            graph_stale: true,
+            text_mode,
+            quick_add: QuickAdd::default(),
+            shown_status: (String::new(), 0.0),
+            welcome_dismissed: false,
         };
         if let Some(path) = app.settings.last_file.clone()
             && path.is_file()
@@ -264,6 +315,7 @@ impl NtApp {
 
     fn after_save(&mut self) {
         self.status = format!("Saved {}", self.doc.display_name());
+        self.graph_stale = true;
         if let Some(path) = self.doc.path() {
             self.services.notify(VaultEvent::Saved(path));
         }
@@ -354,6 +406,7 @@ impl NtApp {
 
     fn refresh_tree(&mut self) {
         self.tree_stale = false;
+        self.graph_stale = true;
         let Some(root) = &self.settings.root else {
             self.tree.clear();
             self.tree_error = None;
@@ -461,6 +514,47 @@ impl NtApp {
         self.tree_stale = true;
     }
 
+    // ---- Quick add and graph ------------------------------------------
+
+    fn toggle_quick_add(&mut self) {
+        let quick = &mut self.quick_add;
+        quick.open = !quick.open;
+        quick.focus_requested = false;
+    }
+
+    /// Saves the quick add text as a note in the inbox, optionally opening it.
+    fn capture(&mut self, open: bool, ctx: &egui::Context) {
+        let Some(root) = self.settings.root.clone() else {
+            return;
+        };
+        match quick_add::capture(&root, &self.quick_add.text) {
+            Ok(path) => {
+                self.status = format!("Added {}", self.display_path(&path).display());
+                self.services.notify(VaultEvent::Created(&path));
+                self.tree_stale = true;
+                self.quick_add = QuickAdd {
+                    button: self.quick_add.button,
+                    ..QuickAdd::default()
+                };
+                if open {
+                    if self.settings.view_mode == ViewMode::Graph {
+                        self.settings.view_mode = self.text_mode;
+                    }
+                    self.request(Pending::OpenPath(path), ctx);
+                }
+            }
+            Err(e) => self.status = format!("Could not add note: {e}"),
+        }
+    }
+
+    fn toggle_graph(&mut self) {
+        self.settings.view_mode = if self.settings.view_mode == ViewMode::Graph {
+            self.text_mode
+        } else {
+            ViewMode::Graph
+        };
+    }
+
     // ---- UI -----------------------------------------------------------
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
@@ -479,6 +573,12 @@ impl NtApp {
         }
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_SIDEBAR)) {
             self.settings.sidebar_visible = !self.settings.sidebar_visible;
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_QUICK_ADD)) {
+            self.toggle_quick_add();
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_GRAPH)) {
+            self.toggle_graph();
         }
     }
 
@@ -538,6 +638,12 @@ impl NtApp {
                 if ui.button("Choose Root Folder...").clicked() {
                     self.pick_root();
                 }
+                if ui
+                    .add(shortcut_button(&ctx, "Quick Add...", SHORTCUT_QUICK_ADD))
+                    .clicked()
+                {
+                    self.toggle_quick_add();
+                }
                 ui.separator();
                 if ui.button("Exit").clicked() {
                     self.request(Pending::Exit, &ctx);
@@ -556,6 +662,10 @@ impl NtApp {
                 ui.radio_value(mode, ViewMode::Edit, "Editor only");
                 ui.radio_value(mode, ViewMode::Split, "Editor + preview");
                 ui.radio_value(mode, ViewMode::Preview, "Preview only");
+                ui.horizontal(|ui| {
+                    ui.radio_value(mode, ViewMode::Graph, "Graph");
+                    ui.weak(ctx.format_shortcut(&SHORTCUT_GRAPH));
+                });
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings.sidebar_visible, "Sidebar");
@@ -584,6 +694,11 @@ impl NtApp {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let mode = &mut self.settings.view_mode;
+                ui.selectable_value(mode, ViewMode::Graph, "Graph")
+                    .on_hover_text(format!(
+                        "Graph of linked notes ({})",
+                        ctx.format_shortcut(&SHORTCUT_GRAPH)
+                    ));
                 ui.selectable_value(mode, ViewMode::Preview, "Preview");
                 ui.selectable_value(mode, ViewMode::Split, "Split");
                 ui.selectable_value(mode, ViewMode::Edit, "Edit");
@@ -593,11 +708,40 @@ impl NtApp {
                         "Show or hide the sidebar ({})",
                         ctx.format_shortcut(&SHORTCUT_SIDEBAR)
                     ));
+                ui.separator();
+                let quick = ui
+                    .add(egui::Button::new("+ Quick add").selected(self.quick_add.open))
+                    .on_hover_text(format!(
+                        "Capture a note into {}/ ({})",
+                        quick_add::INBOX,
+                        ctx.format_shortcut(&SHORTCUT_QUICK_ADD)
+                    ));
+                self.quick_add.button = Some(quick.rect);
+                if quick.clicked() {
+                    self.toggle_quick_add();
+                }
             });
         });
     }
 
-    fn status_bar(&self, ui: &mut egui::Ui) {
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        // Status messages fade out after a few seconds.
+        let now = ui.input(|i| i.time);
+        if self.shown_status.0 != self.status {
+            self.shown_status = (self.status.clone(), now);
+        }
+        let age = now - self.shown_status.1;
+        let status_alpha = (1.0 - (age - STATUS_SECONDS) / 0.6).clamp(0.0, 1.0) as f32;
+        if status_alpha > 0.0 {
+            let wait = (STATUS_SECONDS - age).max(0.0);
+            if wait > 0.0 {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(wait));
+            } else {
+                ui.ctx().request_repaint();
+            }
+        }
+        ui.style_mut().override_text_style = Some(egui::TextStyle::Small);
         ui.horizontal(|ui| {
             match &self.settings.root {
                 Some(root) => {
@@ -619,7 +763,9 @@ impl NtApp {
                 }
             }
             if self.doc.is_dirty() {
-                ui.label("● modified");
+                ui.label(
+                    egui::RichText::new("● modified").color(ui.visuals().selection.stroke.color),
+                );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (words, chars) = self.doc.stats();
@@ -627,7 +773,9 @@ impl NtApp {
                 ui.separator();
                 ui.weak(self.services.edition());
                 ui.separator();
-                ui.add(egui::Label::new(egui::RichText::new(&self.status).weak()).truncate());
+                let status = egui::RichText::new(&self.status)
+                    .color(ui.visuals().weak_text_color().gamma_multiply(status_alpha));
+                ui.add(egui::Label::new(status).truncate());
             });
         });
     }
@@ -775,6 +923,7 @@ impl NtApp {
             .show(ui, |ui| {
                 let output = egui::TextEdit::multiline(&mut self.doc.text)
                     .id(egui::Id::new("nt_editor"))
+                    .frame(egui::Frame::NONE)
                     .font(egui::TextStyle::Monospace)
                     .hint_text("Start writing Markdown...")
                     .desired_width(f32::INFINITY)
@@ -804,6 +953,149 @@ impl NtApp {
             .show(ui, |ui| {
                 CommonMarkViewer::new().show(ui, &mut self.md_cache, &self.doc.text);
             });
+    }
+
+    fn graph(&mut self, ui: &mut egui::Ui) {
+        if self.graph_stale {
+            self.graph_stale = false;
+            self.graph_view
+                .set_graph(Graph::from_tree(&self.tree), self.settings.graph.three_d);
+        }
+        let current = self.doc.path().map(Path::to_path_buf);
+        if let Some(path) = self
+            .graph_view
+            .ui(ui, &mut self.settings.graph, current.as_deref())
+        {
+            self.settings.view_mode = self.text_mode;
+            let ctx = ui.ctx().clone();
+            self.apply_nav_action(NavAction::Open(path), &ctx);
+        }
+    }
+
+    /// First-run screen, shown until a root folder is chosen or the user starts writing.
+    fn welcome(&mut self, ui: &mut egui::Ui) {
+        let accent = ui.visuals().selection.stroke.color;
+        ui.vertical_centered(|ui| {
+            ui.add_space((ui.available_height() * 0.28).max(24.0));
+            ui.label(egui::RichText::new("Neural-Thinker").size(30.0).strong());
+            ui.add_space(2.0);
+            ui.weak("Plain Markdown notes, linked like neurons.");
+            ui.add_space(22.0);
+            let choose = egui::Button::new(
+                egui::RichText::new("Choose a root folder").color(egui::Color32::WHITE),
+            )
+            .fill(accent)
+            .min_size(egui::vec2(220.0, 32.0));
+            if ui.add(choose).clicked() {
+                self.pick_root();
+            }
+            ui.add_space(4.0);
+            if ui
+                .add(egui::Button::new("Start writing").min_size(egui::vec2(220.0, 32.0)))
+                .clicked()
+            {
+                self.welcome_dismissed = true;
+                ui.memory_mut(|m| m.request_focus(egui::Id::new("nt_editor")));
+            }
+            ui.add_space(28.0);
+            let ctx = ui.ctx().clone();
+            let hints = [
+                ("quick add", SHORTCUT_QUICK_ADD),
+                ("graph", SHORTCUT_GRAPH),
+                ("new note", SHORTCUT_NEW),
+                ("sidebar", SHORTCUT_SIDEBAR),
+            ]
+            .map(|(label, shortcut)| format!("{}  {label}", ctx.format_shortcut(&shortcut)))
+            .join("     ");
+            ui.weak(hints);
+        });
+    }
+
+    fn show_welcome(&self) -> bool {
+        !self.welcome_dismissed
+            && self.settings.root.is_none()
+            && self.doc.path().is_none()
+            && self.doc.text.is_empty()
+    }
+
+    /// The quick add popup: one line, Enter adds it to the inbox. Fades and slides in.
+    fn quick_add_popup(&mut self, ctx: &egui::Context) {
+        let id = egui::Id::new("quick_add");
+        let t = ctx.animate_bool_with_time(id, self.quick_add.open, 0.12);
+        if t == 0.0 {
+            return;
+        }
+        let mut submit = None;
+        let mut close = false;
+        let area = egui::Area::new(id)
+            .order(egui::Order::Foreground)
+            .anchor(
+                egui::Align2::CENTER_TOP,
+                egui::vec2(0.0, 70.0 - 10.0 * (1.0 - t)),
+            )
+            .interactable(self.quick_add.open)
+            .show(ctx, |ui| {
+                ui.multiply_opacity(t);
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(14))
+                    .show(ui, |ui| {
+                        ui.set_width(460.0);
+                        ui.horizontal(|ui| {
+                            ui.strong("Quick add");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| ui.weak(format!("to {}/", quick_add::INBOX)),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        if self.settings.root.is_none() {
+                            ui.label("Quick notes go to the root folder's inbox.");
+                            if ui.button("Choose Root Folder...").clicked() {
+                                self.pick_root();
+                            }
+                            return;
+                        }
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.quick_add.text)
+                                .hint_text("Capture a thought...  [[links]] work too")
+                                .margin(egui::vec2(8.0, 6.0))
+                                .desired_width(f32::INFINITY),
+                        );
+                        if self.quick_add.open && !self.quick_add.focus_requested {
+                            response.request_focus();
+                            self.quick_add.focus_requested = true;
+                        }
+                        if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                            submit = Some(ui.input(|i| i.modifiers.shift));
+                        }
+                        ui.add_space(2.0);
+                        ui.weak("Enter add  ·  Shift+Enter add and open  ·  Esc close");
+                    });
+            });
+        if !self.quick_add.open {
+            return;
+        }
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            close = true;
+        }
+        // A click anywhere else closes it too.
+        if ctx.input(|i| i.pointer.any_pressed())
+            && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
+            && !area.response.rect.contains(pos)
+            && !self.quick_add.button.is_some_and(|r| r.contains(pos))
+        {
+            close = true;
+        }
+        if let Some(open) = submit {
+            if self.quick_add.text.trim().is_empty() {
+                close = true;
+            } else {
+                self.capture(open, ctx);
+            }
+        }
+        if close {
+            self.quick_add.open = false;
+        }
     }
 
     fn confirm_dialog(&mut self, ctx: &egui::Context) {
@@ -978,34 +1270,73 @@ impl eframe::App for NtApp {
             self.refresh_tree();
         }
 
-        egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
-        if self.settings.status_bar_visible {
-            egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        }
-        if self.settings.sidebar_visible {
-            egui::Panel::left("sidebar")
-                .resizable(true)
-                .default_size(250.0)
-                .min_size(160.0)
-                .show(ui, |ui| self.sidebar(ui));
+        if self.settings.view_mode != ViewMode::Graph {
+            self.text_mode = self.settings.view_mode;
         }
 
-        match self.settings.view_mode {
-            ViewMode::Edit => {
-                egui::CentralPanel::default().show(ui, |ui| self.editor(ui));
-            }
-            ViewMode::Preview => {
-                egui::CentralPanel::default().show(ui, |ui| self.preview(ui));
-            }
-            ViewMode::Split => {
-                let half = ui.available_width() / 2.0;
-                egui::Panel::right("preview")
-                    .resizable(true)
-                    .default_size(half)
-                    .show(ui, |ui| self.preview(ui));
-                egui::CentralPanel::default().show(ui, |ui| self.editor(ui));
+        let dark = ui.visuals().dark_mode;
+        let bar = egui::Frame::new()
+            .fill(theme::surface(dark))
+            .inner_margin(egui::Margin::symmetric(10, 4));
+        let page_fill = ui.visuals().panel_fill;
+        let page = |x: i8, y: i8| {
+            egui::Frame::new()
+                .fill(page_fill)
+                .inner_margin(egui::Margin::symmetric(x, y))
+        };
+
+        egui::Panel::top("menu")
+            .frame(bar)
+            .show(ui, |ui| self.menu_bar(ui));
+        if self.settings.status_bar_visible {
+            egui::Panel::bottom("status")
+                .frame(bar)
+                .show(ui, |ui| self.status_bar(ui));
+        }
+        // The sidebar slides in and out.
+        let mut sidebar_visible = self.settings.sidebar_visible;
+        egui::Panel::left("sidebar")
+            .frame(bar.inner_margin(egui::Margin::symmetric(10, 6)))
+            .resizable(true)
+            .default_size(250.0)
+            .min_size(160.0)
+            .show_collapsible(ui, &mut sidebar_visible, |ui| self.sidebar(ui));
+        self.settings.sidebar_visible = sidebar_visible;
+        if self.show_welcome() {
+            egui::CentralPanel::default()
+                .frame(page(24, 16))
+                .show(ui, |ui| self.welcome(ui));
+        } else {
+            match self.settings.view_mode {
+                ViewMode::Edit => {
+                    egui::CentralPanel::default()
+                        .frame(page(28, 16))
+                        .show(ui, |ui| self.editor(ui));
+                }
+                ViewMode::Preview => {
+                    egui::CentralPanel::default()
+                        .frame(page(28, 16))
+                        .show(ui, |ui| self.preview(ui));
+                }
+                ViewMode::Split => {
+                    let half = ui.available_width() / 2.0;
+                    egui::Panel::right("preview")
+                        .frame(page(24, 16))
+                        .resizable(true)
+                        .default_size(half)
+                        .show(ui, |ui| self.preview(ui));
+                    egui::CentralPanel::default()
+                        .frame(page(28, 16))
+                        .show(ui, |ui| self.editor(ui));
+                }
+                ViewMode::Graph => {
+                    egui::CentralPanel::default()
+                        .frame(page(12, 8))
+                        .show(ui, |ui| self.graph(ui));
+                }
             }
         }
+        self.quick_add_popup(&ctx);
 
         // One modal at a time; the unsaved-changes prompt comes first.
         if self.pending.is_some() {
