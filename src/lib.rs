@@ -7,6 +7,7 @@
 mod app;
 mod document;
 mod graph;
+mod graph_layout;
 mod graph_view;
 mod links;
 mod outline;
