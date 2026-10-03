@@ -9,6 +9,7 @@ mod custom_theme;
 mod document;
 mod fuzzy;
 mod graph;
+mod graph_layout;
 mod graph_view;
 mod link_complete;
 mod links;
