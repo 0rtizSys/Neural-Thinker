@@ -59,14 +59,7 @@ impl Graph {
             let dir = paths[from].parent().unwrap_or(Path::new(""));
             for link in links::extract(text) {
                 let to = match link {
-                    Link::Wiki(name) => {
-                        let name = name.rsplit(['/', '\\']).next().unwrap_or(&name);
-                        let name = name
-                            .strip_suffix(".md")
-                            .or_else(|| name.strip_suffix(".markdown"))
-                            .unwrap_or(name);
-                        by_name.get(&name.to_lowercase()).copied()
-                    }
+                    Link::Wiki(name) => by_name.get(&links::wiki_key(&name)).copied(),
                     Link::Path(rel) => by_path.get(&normalize(&dir.join(rel))).copied(),
                 };
                 if let Some(to) = to
@@ -97,7 +90,7 @@ impl Graph {
     }
 }
 
-fn collect_notes(entries: &[Entry], out: &mut Vec<PathBuf>) {
+pub(crate) fn collect_notes(entries: &[Entry], out: &mut Vec<PathBuf>) {
     for entry in entries {
         match entry.kind {
             EntryKind::Folder => collect_notes(&entry.children, out),
@@ -107,7 +100,7 @@ fn collect_notes(entries: &[Entry], out: &mut Vec<PathBuf>) {
     }
 }
 
-fn read_small(path: &Path) -> Option<String> {
+pub(crate) fn read_small(path: &Path) -> Option<String> {
     let len = fs::metadata(path).ok()?.len();
     if len > MAX_SCAN_BYTES {
         return None;
@@ -115,7 +108,7 @@ fn read_small(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
-fn stem(path: &Path) -> String {
+pub(crate) fn stem(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default()
@@ -123,7 +116,7 @@ fn stem(path: &Path) -> String {
 
 /// Resolves `.` and `..` lexically and lowercases (paths are compared
 /// case-insensitively, as on Windows).
-fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {

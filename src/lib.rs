@@ -6,11 +6,15 @@
 
 mod app;
 mod document;
+mod fuzzy;
 mod graph;
 mod graph_view;
+mod link_complete;
 mod links;
 mod outline;
+mod palette;
 mod quick_add;
+mod search;
 pub mod services;
 mod theme;
 mod vault;

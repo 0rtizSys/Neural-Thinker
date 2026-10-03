@@ -13,9 +13,17 @@ pub enum Link {
 
 /// Links in `text`, in order, skipping fenced code blocks and inline code.
 pub fn extract(text: &str) -> Vec<Link> {
+    extract_by_line(text)
+        .into_iter()
+        .map(|(_, link)| link)
+        .collect()
+}
+
+/// Like [`extract`], with the zero-based line each link is on.
+pub fn extract_by_line(text: &str) -> Vec<(usize, Link)> {
     let mut links = Vec::new();
     let mut fence: Option<&str> = None;
-    for line in text.lines() {
+    for (number, line) in text.lines().enumerate() {
         let trimmed = line.trim_start();
         if let Some(marker) = ["```", "~~~"].into_iter().find(|m| trimmed.starts_with(m)) {
             match fence {
@@ -26,10 +34,23 @@ pub fn extract(text: &str) -> Vec<Link> {
             continue;
         }
         if fence.is_none() {
-            extract_line(line, &mut links);
+            let mut found = Vec::new();
+            extract_line(line, &mut found);
+            links.extend(found.into_iter().map(|link| (number, link)));
         }
     }
     links
+}
+
+/// The lowercase note name a wiki link target refers to: `notes/Plan.md` and
+/// `plan` both name the note `Plan`.
+pub fn wiki_key(target: &str) -> String {
+    let name = target.rsplit(['/', '\\']).next().unwrap_or(target);
+    let name = name
+        .strip_suffix(".md")
+        .or_else(|| name.strip_suffix(".markdown"))
+        .unwrap_or(name);
+    name.to_lowercase()
 }
 
 fn extract_line(line: &str, links: &mut Vec<Link>) {
@@ -106,6 +127,14 @@ mod tests {
             extract(text),
             [path("a.md"), path("sub/b c.md"), path("c d.md")]
         );
+    }
+
+    #[test]
+    fn reports_line_numbers_and_wiki_keys() {
+        let text = "intro\n```\n[[x]]\n```\n[[A]] and [b](b.md)";
+        assert_eq!(extract_by_line(text), [(4, wiki("A")), (4, path("b.md"))]);
+        assert_eq!(wiki_key("notes/Week 1.md"), "week 1");
+        assert_eq!(wiki_key("Plan"), "plan");
     }
 
     #[test]
