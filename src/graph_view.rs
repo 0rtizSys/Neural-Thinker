@@ -4,8 +4,8 @@
 //! The layout runs one simulation step per frame and stops once it has
 //! settled, so an idle graph costs nothing. Repulsion uses Barnes-Hut on
 //! large graphs (see `graph_layout`), and each frame draws all links as one
-//! mesh and all nodes as another, culled to the view, so vaults of thousands
-//! of notes stay smooth.
+//! mesh and skips whatever is off screen, so vaults of thousands of notes
+//! stay smooth.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -400,8 +400,9 @@ impl GraphView {
         // Highlighting dims everything not linked to the focused node.
         let dim = |near: bool| if near { 1.0 } else { 1.0 - 0.75 * focus_t };
 
-        // Everything is batched: all links in one mesh, all nodes in another,
-        // then labels on top. Off-screen links and nodes are skipped.
+        // All links go into one mesh (cheaper than a shape per link); nodes
+        // stay egui circles, whose tessellation is already fast. Off-screen
+        // links and nodes are skipped.
         let painter = ui.painter_at(rect);
         let feather = 1.0 / ctx.pixels_per_point();
         let visible = rect.expand(2.0);
@@ -435,10 +436,9 @@ impl GraphView {
         if settings.three_d {
             order.sort_unstable_by(|&a, &b| projected[b].depth.total_cmp(&projected[a].depth));
         }
-        let circles = CircleTables::new();
         let label_zoom = ((self.zoom - 0.7) / 0.4).clamp(0.0, 1.0);
         let node_area = rect.expand(40.0);
-        let mut dots = egui::Mesh::default();
+        let mut dots = Vec::with_capacity(order.len());
         let mut overlay = Vec::new();
         for &i in &order {
             let p = &projected[i];
@@ -453,7 +453,11 @@ impl GraphView {
             } else {
                 node_color
             };
-            circles.add(&mut dots, p.pos, r, fill.gamma_multiply(alpha), feather);
+            dots.push(egui::Shape::circle_filled(
+                p.pos,
+                r,
+                fill.gamma_multiply(alpha),
+            ));
             if is_current {
                 overlay.push(egui::Shape::circle_stroke(
                     p.pos,
@@ -505,7 +509,7 @@ impl GraphView {
                 );
             }
         }
-        painter.add(dots);
+        painter.extend(dots);
         painter.extend(overlay);
 
         let moving = self.alpha > 0.0
@@ -612,55 +616,6 @@ impl GraphView {
             self.auto_fit = true;
         }
         None
-    }
-}
-
-/// Unit circles with enough segments for each size of node.
-struct CircleTables {
-    tables: [Vec<Vec2>; 5],
-}
-
-impl CircleTables {
-    const SEGMENTS: [usize; 5] = [8, 12, 16, 24, 40];
-
-    fn new() -> Self {
-        Self {
-            tables: Self::SEGMENTS.map(|k| {
-                (0..k)
-                    .map(|j| Vec2::angled(j as f32 * std::f32::consts::TAU / k as f32))
-                    .collect()
-            }),
-        }
-    }
-
-    /// Appends an anti-aliased filled circle to `mesh`.
-    fn add(&self, mesh: &mut egui::Mesh, center: Pos2, r: f32, color: egui::Color32, feather: f32) {
-        let px = r / feather;
-        let unit = &self.tables[match px {
-            ..2.5 => 0,
-            ..5.0 => 1,
-            ..9.0 => 2,
-            ..16.0 => 3,
-            _ => 4,
-        }];
-        let k = unit.len() as u32;
-        let base = mesh.vertices.len() as u32;
-        let (inner, outer) = ((r - feather / 2.0).max(0.0), r + feather / 2.0);
-        mesh.reserve_vertices(1 + 2 * k as usize);
-        mesh.reserve_triangles(3 * k as usize);
-        mesh.colored_vertex(center, color);
-        for u in unit {
-            mesh.colored_vertex(center + *u * inner, color);
-            mesh.colored_vertex(center + *u * outer, egui::Color32::TRANSPARENT);
-        }
-        for j in 0..k {
-            let next = (j + 1) % k;
-            let (i0, o0) = (base + 1 + 2 * j, base + 2 + 2 * j);
-            let (i1, o1) = (base + 1 + 2 * next, base + 2 + 2 * next);
-            mesh.add_triangle(base, i0, i1);
-            mesh.add_triangle(i0, o0, o1);
-            mesh.add_triangle(i0, o1, i1);
-        }
     }
 }
 
