@@ -1,0 +1,74 @@
+/*
+ * Neural-Thinker example theme: "Ember".
+ *
+ * Copy this file, rename it, and pick it in View > Custom theme. The theme
+ * reloads every time you save the file. Neural-Thinker reads a safe subset of
+ * CSS: only the custom properties below are understood; anything else is
+ * skipped and listed as a warning in the View menu. Full reference:
+ * docs/THEMES.md in the repository.
+ */
+
+/* Shared by light and dark mode. */
+:root {
+    /* Your own helper variables are allowed; use them with var(). */
+    --ember: #e8a25c;
+    --ember-deep: #b8641f;
+
+    /* Fonts: url("file.ttf") relative to this folder, or sans-serif / monospace. */
+    /* --font-text: url("fonts/Inter-Regular.ttf"), sans-serif; */
+    /* --font-mono: url("fonts/JetBrainsMono-Regular.ttf"), monospace; */
+
+    --font-size: 15px;
+    --font-size-small: 12px;
+    --font-size-button: 14px;
+    --font-size-heading: 22px;
+    --font-size-mono: 14px;
+
+    --spacing: 9px 7px;
+    --button-padding: 10px 4px;
+    --window-padding: 18px;
+    --indent: 18px;
+    --radius: 4px;
+    --window-radius: 8px;
+    --animation-duration: 120ms;
+}
+
+/* Dark mode. */
+.theme-dark {
+    --background: #1d1a17;
+    --background-secondary: #171512;
+    --background-sunken: #12100e;
+    --border: #2f2a24;
+    --text: #e6ddd2;
+    --widget: #2a2520;
+    --widget-hover: #352e27;
+    --widget-active: #42392f;
+    --accent: var(--ember);
+    --link: #f0bd84;
+    --selection: rgb(232 162 92 / 26%);
+    --shadow: rgba(0, 0, 0, 0.45);
+
+    --graph-background: #151310;
+    --graph-node: #a89c8e;
+    --graph-edge: rgb(168 156 142 / 22%);
+    --graph-highlight: var(--ember);
+    --graph-label: #e6ddd2;
+}
+
+/* Light mode. @media (prefers-color-scheme: light) { :root { ... } } works too. */
+.theme-light {
+    --background: #fbf7f1;
+    --background-secondary: #f3ece2;
+    --background-sunken: #ece3d6;
+    --border: #e0d5c6;
+    --text: #2e2720;
+    --widget: #ebe2d5;
+    --widget-hover: #e2d6c6;
+    --widget-active: #d6c7b3;
+    --accent: var(--ember-deep);
+    --shadow: #00000024;
+
+    --graph-node: #6f6458;
+    --graph-edge: hsl(30 15% 40% / 25%);
+    --graph-highlight: var(--ember-deep);
+}

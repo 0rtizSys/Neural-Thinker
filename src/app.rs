@@ -7,6 +7,7 @@ use egui::text::{CCursor, CCursorRange};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
+use crate::custom_theme::CustomThemes;
 use crate::document::{DEFAULT_EXTENSION, Document};
 use crate::graph::Graph;
 use crate::graph_view::{GraphSettings, GraphView};
@@ -96,6 +97,8 @@ struct Settings {
     status_bar_visible: bool,
     show_all_files: bool,
     graph: GraphSettings,
+    /// File name of the CSS theme in the themes folder; `None` for the built-in look.
+    custom_theme: Option<String>,
 }
 
 impl Default for Settings {
@@ -109,6 +112,7 @@ impl Default for Settings {
             status_bar_visible: true,
             show_all_files: false,
             graph: GraphSettings::default(),
+            custom_theme: None,
         }
     }
 }
@@ -186,6 +190,7 @@ pub struct NtApp {
     shown_status: (String, f64),
     /// "Start writing" was chosen on the welcome screen.
     welcome_dismissed: bool,
+    themes: CustomThemes,
 }
 
 /// The quick add popup's state.
@@ -204,7 +209,8 @@ impl NtApp {
             .storage
             .and_then(|s| eframe::get_value(s, SETTINGS_KEY))
             .unwrap_or_default();
-        theme::apply(&cc.egui_ctx);
+        let mut themes = CustomThemes::new(&cc.egui_ctx);
+        let theme_status = themes.update(&cc.egui_ctx, settings.custom_theme.as_deref());
         let text_mode = match settings.view_mode {
             ViewMode::Graph => ViewMode::Split,
             mode => mode,
@@ -235,7 +241,11 @@ impl NtApp {
             quick_add: QuickAdd::default(),
             shown_status: (String::new(), 0.0),
             welcome_dismissed: false,
+            themes,
         };
+        if app.settings.custom_theme.is_some() {
+            app.status = theme_status.unwrap_or_default();
+        }
         if let Some(path) = app.settings.last_file.clone()
             && path.is_file()
         {
@@ -681,6 +691,8 @@ impl NtApp {
                 ui.separator();
                 ui.label(egui::RichText::new("Theme").weak());
                 egui::widgets::global_theme_preference_buttons(ui);
+                self.themes.menu_ui(ui, &mut self.settings.custom_theme);
+                ui.separator();
                 ui.weak("Zoom: Ctrl + / Ctrl - / Ctrl 0");
             });
             ui.menu_button("Help", |ui| {
@@ -1266,6 +1278,12 @@ impl eframe::App for NtApp {
         self.handle_focus(&ctx);
         self.handle_shortcuts(&ctx);
         self.services.update(&ctx);
+        if let Some(message) = self
+            .themes
+            .update(&ctx, self.settings.custom_theme.as_deref())
+        {
+            self.status = message;
+        }
         if self.tree_stale {
             self.refresh_tree();
         }
@@ -1274,9 +1292,8 @@ impl eframe::App for NtApp {
             self.text_mode = self.settings.view_mode;
         }
 
-        let dark = ui.visuals().dark_mode;
         let bar = egui::Frame::new()
-            .fill(theme::surface(dark))
+            .fill(theme::surface(ui.visuals()))
             .inner_margin(egui::Margin::symmetric(10, 4));
         let page_fill = ui.visuals().panel_fill;
         let page = |x: i8, y: i8| {
@@ -1331,7 +1348,7 @@ impl eframe::App for NtApp {
                 }
                 ViewMode::Graph => {
                     egui::CentralPanel::default()
-                        .frame(page(12, 8))
+                        .frame(page(12, 8).fill(theme::graph_colors(ui).background))
                         .show(ui, |ui| self.graph(ui));
                 }
             }

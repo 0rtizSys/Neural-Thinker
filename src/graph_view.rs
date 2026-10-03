@@ -379,22 +379,12 @@ impl GraphView {
         let is_near = |i: usize| neighbors.get(i).copied().unwrap_or(false);
 
         // Colors.
-        let visuals = ui.visuals();
-        let accent = visuals.selection.stroke.color;
-        let node_color = visuals
-            .widgets
-            .inactive
-            .fg_stroke
-            .color
-            .gamma_multiply(0.85);
-        let edge_color = visuals
-            .widgets
-            .noninteractive
-            .fg_stroke
-            .color
-            .gamma_multiply(0.28);
-        let text_color = visuals.text_color();
-        let bg = visuals.panel_fill;
+        let colors = crate::theme::graph_colors(ui);
+        let accent = colors.highlight;
+        let node_color = colors.node;
+        let edge_color = colors.edge;
+        let text_color = colors.label;
+        let bg = colors.background;
 
         // Depth fade in 3D: far nodes are dimmer.
         let (near_z, far_z) = projected.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {

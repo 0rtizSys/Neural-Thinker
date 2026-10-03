@@ -5,6 +5,7 @@
 //! none.
 
 mod app;
+mod custom_theme;
 mod document;
 mod graph;
 mod graph_view;
@@ -13,6 +14,7 @@ mod outline;
 mod quick_add;
 pub mod services;
 mod theme;
+mod theme_css;
 mod vault;
 
 /// Re-exported so service crates build against the same egui version.

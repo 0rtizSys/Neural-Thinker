@@ -15,7 +15,7 @@ Both views are built for efficiency and target low-end, mid-range and high-end h
 
 NT ships with a minimal baseline and is meant to be extended by the user:
 
-- **Custom CSS**: users can apply arbitrary CSS. It runs only within their local executable; any breakage it causes is the user's responsibility.
+- **Custom CSS**: users restyle the app with their own CSS theme files. Themes run only within their local executable; see [Custom themes](#custom-themes).
 - **Layout and fonts**: fully customizable.
 - **Graph views**: 2D and 3D maps are configurable, including depth parameters.
 
@@ -30,7 +30,7 @@ NT ships with a minimal baseline and is meant to be extended by the user:
 ## Status
 
 Phases 1 (basic editor), 2 (navigation and layouts) and 3 (quick add and graph prototype) are
-implemented:
+implemented, and phase 4 adds custom CSS themes:
 
 - Markdown editor with a live rendered preview (editor only, split, or preview only).
 - New, Open, Save and Save As, with unsaved-change prompts on New, Open and exit.
@@ -57,6 +57,31 @@ implemented:
   slides, popups fade, status messages fade out.
 
 The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. Markdown is rendered with `egui_commonmark`.
+
+## Custom themes
+
+Phase 4 adds user CSS themes. Because egui is not a web renderer, a theme sets a documented
+list of CSS custom properties that map onto NT's design tokens instead of styling elements:
+
+```css
+:root        { --font-size: 15px; --radius: 4px; --animation-duration: 120ms; }
+.theme-dark  { --background: #1d1a17; --text: #e6ddd2; --accent: #e8a25c; --graph-edge: rgb(168 156 142 / 22%); }
+.theme-light { --background: #fbf7f1; --accent: #b8641f; }
+```
+
+- Theme files live in the `themes` folder of NT's config directory (`%APPDATA%\Neural-Thinker\themes`
+  on Windows, `~/.config/neural-thinker/themes` on Linux); **View > Custom theme (CSS)** picks
+  one and opens the folder. A commented sample, [`themes/example.css`](themes/example.css),
+  is copied there on first run.
+- Supported: colors (interface, text, accent, selection, links, graph nodes, edges, labels
+  and background), font sizes, custom TTF/OTF fonts via `url()`, spacing, padding, corner
+  radii and animation time, per light/dark mode. `var()` and
+  `@media (prefers-color-scheme: …)` work.
+- Unsupported selectors, properties and values are skipped and listed as warnings in the
+  View menu; nothing in a theme can crash the app. Out-of-range values are clamped.
+- Saving a theme file applies it immediately (hot reload).
+
+The full property reference is in [docs/THEMES.md](docs/THEMES.md).
 
 ## Building
 
