@@ -28,6 +28,14 @@ const SHORTCUT_GRAPH: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAN
 /// Seconds a status message stays before fading out.
 const STATUS_SECONDS: f64 = 4.0;
 
+/// Shown on the welcome screen and in About; keep in sync with LICENSE.md.
+const LICENSE_NOTICE: &str = "Source-available under the PolyForm Noncommercial License 1.0.0: \
+    free to use, fork, modify and share for personal, non-commercial purposes. \
+    Commercial use is not permitted.";
+const REQUIRED_NOTICE: &str = "Required Notice: Copyright (c) 2026 0rtizSys \
+    (https://github.com/0rtizSys/Neural-Thinker)";
+const LICENSE_TEXT: &str = include_str!("../LICENSE.md");
+
 /// How the editor area is split between source and rendered Markdown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum ViewMode {
@@ -1008,6 +1016,19 @@ impl NtApp {
             .map(|(label, shortcut)| format!("{}  {label}", ctx.format_shortcut(&shortcut)))
             .join("     ");
             ui.weak(hints);
+            ui.add_space(28.0);
+            ui.small(
+                egui::RichText::new(
+                    "Free for personal, non-commercial use · PolyForm Noncommercial License 1.0.0",
+                )
+                .weak(),
+            );
+            if ui
+                .link(egui::RichText::new("License and notices").small())
+                .clicked()
+            {
+                self.show_about = true;
+            }
         });
     }
 
@@ -1249,12 +1270,16 @@ impl NtApp {
                     self.services.edition()
                 ));
                 ui.add_space(6.0);
-                ui.label(
-                    "Source-available under the PolyForm Noncommercial License 1.0.0: \
-                     free to use, fork, modify and share for personal, non-commercial \
-                     purposes. Commercial use is not permitted.",
-                );
+                ui.label(LICENSE_NOTICE);
+                ui.add_space(4.0);
+                ui.weak(REQUIRED_NOTICE);
                 ui.hyperlink("https://github.com/0rtizSys/Neural-Thinker");
+                ui.add_space(6.0);
+                egui::CollapsingHeader::new("License text").show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(260.0)
+                        .show(ui, |ui| ui.monospace(LICENSE_TEXT));
+                });
             });
     }
 }
@@ -1448,4 +1473,16 @@ fn shortcut_button<'a>(
     shortcut: KeyboardShortcut,
 ) -> egui::Button<'a> {
     egui::Button::new(label).shortcut_text(ctx.format_shortcut(&shortcut))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_notice_matches_license_file() {
+        let first = LICENSE_TEXT.lines().next().unwrap_or_default();
+        assert_eq!(first, REQUIRED_NOTICE);
+        assert!(LICENSE_TEXT.contains("PolyForm Noncommercial License 1.0.0"));
+    }
 }

@@ -1,0 +1,116 @@
+name: Release (Windows)
+
+# Pushing a version tag (v0.1.0, v0.2.0-beta.1, ...) builds the Community edition
+# for Windows and attaches it to a DRAFT GitHub release; publishing the draft is a
+# manual step. Pushes to dev/supervision that touch packaging, and manual runs,
+# do the same build as a dry run: the files are kept as a workflow artifact and no
+# release is created. See docs/RELEASING.md.
+
+on:
+  push:
+    tags: ['v*']
+    branches: [dev/supervision]
+    # Path filters do not apply to tag pushes; they only limit the dry runs.
+    paths:
+      - .github/workflows/release.yml
+      - scripts/package-windows.ps1
+      - packaging/**
+      - assets/**
+      - build.rs
+      - Cargo.toml
+      - Cargo.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  private-guard:
+    name: Private code guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No private code in the tree or in history
+        run: sh scripts/check-private.sh --history
+
+  package:
+    name: Build and package for Windows
+    needs: private-guard
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      # No build cache: release binaries are always built from scratch.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build, verify and package
+        id: package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1
+      - name: Tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${{ steps.package.outputs.version }}"
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::Tag $tag does not match Cargo.toml version $version (expected v$version)"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neural-thinker-windows
+          path: target/dist/out/*
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: neural-thinker-windows
+          path: out
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          {
+            echo "Neural-Thinker $VERSION, Community edition for Windows 10 and 11 (x64)."
+            echo
+            echo "- \`neural-thinker-$VERSION-windows-x64-setup.exe\`: installer, per user, no administrator rights."
+            echo "- \`neural-thinker-$VERSION-windows-x64.zip\`: portable, extract and run \`neural-thinker.exe\`."
+            echo
+            echo "The executable is not code-signed, so SmartScreen may warn on first run."
+            echo
+            echo "**License:** [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)."
+            echo "Free for personal, non-commercial use; commercial use is not permitted."
+            echo "Both downloads include \`LICENSE.txt\` and \`NOTICE.txt\`."
+            echo
+            echo "Required Notice: Copyright (c) 2026 0rtizSys (https://github.com/0rtizSys/Neural-Thinker)"
+            echo
+            echo '### SHA-256'
+            echo '```'
+            cat out/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+          gh release create "$TAG" out/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft $prerelease \
+            --title "Neural-Thinker $VERSION" \
+            --notes-file notes.md

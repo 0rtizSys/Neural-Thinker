@@ -20,12 +20,16 @@ pub use eframe::egui;
 
 /// Opens the main window and runs until it is closed.
 pub fn run(services: services::Services) -> eframe::Result {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Neural-Thinker")
+        .with_inner_size([1200.0, 760.0])
+        .with_min_inner_size([560.0, 360.0]);
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")) {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Glow,
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Neural-Thinker")
-            .with_inner_size([1200.0, 760.0])
-            .with_min_inner_size([560.0, 360.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(

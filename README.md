@@ -58,6 +58,12 @@ implemented:
 
 The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. Markdown is rendered with `egui_commonmark`.
 
+## Download (Windows)
+
+Prebuilt Windows 10/11 builds of the Community edition (installer and portable zip) are
+attached to [GitHub Releases](https://github.com/0rtizSys/Neural-Thinker/releases). They are
+built by GitHub Actions from this repository; see [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Building
 
 Requires a stable Rust toolchain (edition 2024) and Git.
