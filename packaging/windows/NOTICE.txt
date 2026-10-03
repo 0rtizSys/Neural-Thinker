@@ -1,0 +1,28 @@
+Neural-Thinker - Community edition for Windows
+==============================================
+
+Required Notice: Copyright (c) 2026 0rtizSys (https://github.com/0rtizSys/Neural-Thinker)
+
+License: PolyForm Noncommercial License 1.0.0 (full text in LICENSE.txt,
+also at https://polyformproject.org/licenses/noncommercial/1.0.0).
+
+You may use, copy, modify and share this software for personal,
+non-commercial purposes. Commercial use is not permitted. If you pass a copy
+on, include LICENSE.txt and this notice.
+
+This build contains only the open-source Community edition. It has no cloud
+or sync services and sends no data anywhere: your notes stay as plain
+Markdown files in the folder you choose.
+
+Running it
+----------
+Portable zip: extract the folder anywhere and run neural-thinker.exe.
+Installer:    installs for the current user only (no administrator rights)
+              and adds a Start menu entry; uninstall from Windows Settings.
+
+The executable is not code-signed, so Windows SmartScreen may warn the first
+time. Choose "More info" and then "Run anyway" if you trust this download.
+Each release lists SHA-256 checksums so you can verify the files.
+
+Source code, issues and build instructions:
+https://github.com/0rtizSys/Neural-Thinker
