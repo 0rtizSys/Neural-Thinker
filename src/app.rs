@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::document::{DEFAULT_EXTENSION, Document};
 use crate::graph::Graph;
 use crate::graph_view::{GraphSettings, GraphView};
+use crate::link_complete::{self, LinkComplete};
+use crate::palette::{self, Palette};
+use crate::search::NoteIndex;
 use crate::services::{Services, VaultEvent};
 use crate::vault::{self, Entry, EntryKind};
 use crate::{outline, quick_add, theme};
@@ -24,6 +27,9 @@ const SHORTCUT_SAVE_AS: KeyboardShortcut =
 const SHORTCUT_SIDEBAR: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::B);
 const SHORTCUT_QUICK_ADD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Space);
 const SHORTCUT_GRAPH: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::G);
+const SHORTCUT_QUICK_OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::P);
+const SHORTCUT_FIND: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::F);
 
 /// Seconds a status message stays before fading out.
 const STATUS_SECONDS: f64 = 4.0;
@@ -50,6 +56,7 @@ enum ViewMode {
 enum SidebarTab {
     Files,
     Outline,
+    Backlinks,
 }
 
 /// Named combinations of sidebar and view mode, offered in the View menu.
@@ -194,6 +201,15 @@ pub struct NtApp {
     shown_status: (String, f64),
     /// "Start writing" was chosen on the welcome screen.
     welcome_dismissed: bool,
+
+    /// Titles, text and links of every note, for search and backlinks. Built
+    /// on first use after the root folder is (re)scanned.
+    index: Option<NoteIndex>,
+    palette: Palette,
+    link_complete: LinkComplete,
+    /// Where to put the cursor once this note has been opened (opening may
+    /// wait for the unsaved-changes prompt).
+    open_at: Option<(PathBuf, usize)>,
 }
 
 /// The quick add popup's state.
@@ -243,6 +259,10 @@ impl NtApp {
             quick_add: QuickAdd::default(),
             shown_status: (String::new(), 0.0),
             welcome_dismissed: false,
+            index: None,
+            palette: Palette::default(),
+            link_complete: LinkComplete::default(),
+            open_at: None,
         };
         if let Some(path) = app.settings.last_file.clone()
             && path.is_file()
@@ -259,6 +279,11 @@ impl NtApp {
             Ok(doc) => {
                 self.doc = doc;
                 self.settings.last_file = Some(path.to_path_buf());
+                if let Some((target, offset)) = self.open_at.take()
+                    && target == path
+                {
+                    self.jump_to = Some(offset);
+                }
                 self.status = format!("Opened {}", self.display_path(path).display());
             }
             Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
@@ -325,6 +350,15 @@ impl NtApp {
         self.status = format!("Saved {}", self.doc.display_name());
         self.graph_stale = true;
         if let Some(path) = self.doc.path() {
+            if let Some(index) = &mut self.index
+                && self
+                    .settings
+                    .root
+                    .as_ref()
+                    .is_some_and(|r| path.starts_with(r))
+            {
+                index.update(path, &self.doc.text);
+            }
             self.services.notify(VaultEvent::Saved(path));
         }
     }
@@ -415,6 +449,7 @@ impl NtApp {
     fn refresh_tree(&mut self) {
         self.tree_stale = false;
         self.graph_stale = true;
+        self.index = None;
         let Some(root) = &self.settings.root else {
             self.tree.clear();
             self.tree_error = None;
@@ -555,6 +590,61 @@ impl NtApp {
         }
     }
 
+    // ---- Search and backlinks ----------------------------------------
+
+    /// The note index, built now if the root folder was rescanned since.
+    fn index(&mut self) -> Option<&NoteIndex> {
+        self.settings.root.as_ref()?;
+        Some(
+            self.index
+                .get_or_insert_with(|| NoteIndex::from_tree(&self.tree)),
+        )
+    }
+
+    fn toggle_palette(&mut self, mode: palette::Mode) {
+        self.palette.toggle(mode);
+        if self.palette.open {
+            self.quick_add.open = false;
+        }
+    }
+
+    /// Opens `path`, placing the cursor at `char_offset` when given.
+    fn open_note_at(&mut self, path: PathBuf, char_offset: Option<usize>, ctx: &egui::Context) {
+        if self.settings.view_mode == ViewMode::Graph {
+            self.settings.view_mode = self.text_mode;
+        }
+        let Some(offset) = char_offset else {
+            self.apply_nav_action(NavAction::Open(path), ctx);
+            return;
+        };
+        if self.settings.view_mode == ViewMode::Preview {
+            self.settings.view_mode = ViewMode::Split;
+        }
+        if self.doc.path() == Some(path.as_path()) {
+            self.jump_to = Some(offset);
+        } else {
+            self.open_at = Some((path.clone(), offset));
+            self.request(Pending::OpenPath(path), ctx);
+        }
+    }
+
+    fn search_palette(&mut self, ctx: &egui::Context) {
+        let shortcuts = [
+            ctx.format_shortcut(&SHORTCUT_QUICK_OPEN),
+            ctx.format_shortcut(&SHORTCUT_FIND),
+        ];
+        let root = self.settings.root.clone();
+        if self.palette.open {
+            self.index();
+        }
+        if let Some(pick) = self
+            .palette
+            .ui(ctx, self.index.as_ref(), root.as_deref(), shortcuts)
+        {
+            self.open_note_at(pick.path, pick.char_offset, ctx);
+        }
+    }
+
     fn toggle_graph(&mut self) {
         self.settings.view_mode = if self.settings.view_mode == ViewMode::Graph {
             self.text_mode
@@ -587,6 +677,12 @@ impl NtApp {
         }
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_GRAPH)) {
             self.toggle_graph();
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_FIND)) {
+            self.toggle_palette(palette::Mode::Text);
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_QUICK_OPEN)) {
+            self.toggle_palette(palette::Mode::Titles);
         }
     }
 
@@ -645,6 +741,18 @@ impl NtApp {
                 ui.separator();
                 if ui.button("Choose Root Folder...").clicked() {
                     self.pick_root();
+                }
+                if ui
+                    .add(shortcut_button(&ctx, "Go to Note...", SHORTCUT_QUICK_OPEN))
+                    .clicked()
+                {
+                    self.toggle_palette(palette::Mode::Titles);
+                }
+                if ui
+                    .add(shortcut_button(&ctx, "Search in Notes...", SHORTCUT_FIND))
+                    .clicked()
+                {
+                    self.toggle_palette(palette::Mode::Text);
                 }
                 if ui
                     .add(shortcut_button(&ctx, "Quick Add...", SHORTCUT_QUICK_ADD))
@@ -728,6 +836,17 @@ impl NtApp {
                 if quick.clicked() {
                     self.toggle_quick_add();
                 }
+                if ui
+                    .add(egui::Button::new("🔍 Search").selected(self.palette.open))
+                    .on_hover_text(format!(
+                        "Go to a note ({}) or search their text ({})",
+                        ctx.format_shortcut(&SHORTCUT_QUICK_OPEN),
+                        ctx.format_shortcut(&SHORTCUT_FIND)
+                    ))
+                    .clicked()
+                {
+                    self.toggle_palette(palette::Mode::Titles);
+                }
             });
         });
     }
@@ -794,11 +913,14 @@ impl NtApp {
             let tab = &mut self.settings.sidebar_tab;
             ui.selectable_value(tab, SidebarTab::Files, "Files");
             ui.selectable_value(tab, SidebarTab::Outline, "Outline");
+            ui.selectable_value(tab, SidebarTab::Backlinks, "Backlinks")
+                .on_hover_text("Notes that link to this one");
         });
         ui.separator();
         match self.settings.sidebar_tab {
             SidebarTab::Files => self.files_tab(ui),
             SidebarTab::Outline => self.outline_tab(ui),
+            SidebarTab::Backlinks => self.backlinks_tab(ui),
         }
     }
 
@@ -924,7 +1046,99 @@ impl NtApp {
             });
     }
 
+    /// Notes linking to the open one, each linking line clickable.
+    fn backlinks_tab(&mut self, ui: &mut egui::Ui) {
+        let Some(current) = self.doc.path().map(Path::to_path_buf) else {
+            ui.weak("Save this note to see what links to it.");
+            return;
+        };
+        let root = self.settings.root.clone();
+        let Some(index) = self.index() else {
+            ui.weak("Choose a root folder to find links between notes.");
+            return;
+        };
+        let hits = index.backlinks(&current);
+        let own_title = index
+            .find_path(&current)
+            .map(|i| index.notes()[i].title.clone());
+        let mut open = None;
+        let notes = {
+            let mut n: Vec<usize> = hits.iter().map(|h| h.note).collect();
+            n.dedup();
+            n.len()
+        };
+        ui.weak(match notes {
+            0 => "No notes link here yet.".to_owned(),
+            1 => "1 note links here".to_owned(),
+            n => format!("{n} notes link here"),
+        });
+        if notes == 0 {
+            ui.add_space(4.0);
+            ui.weak(format!(
+                "Link to it from another note with [[{}]].",
+                own_title.as_deref().unwrap_or("this note")
+            ));
+        }
+        ui.add_space(4.0);
+        egui::ScrollArea::vertical()
+            .id_salt("backlinks")
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                let mut last = None;
+                for hit in &hits {
+                    let note = &index.notes()[hit.note];
+                    if last != Some(hit.note) {
+                        last = Some(hit.note);
+                        ui.add_space(6.0);
+                        let folder = note
+                            .path
+                            .parent()
+                            .zip(root.as_deref())
+                            .and_then(|(p, r)| p.strip_prefix(r).ok())
+                            .filter(|p| !p.as_os_str().is_empty());
+                        let title = ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(format!("🗋 {}", note.title)).strong(),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text(folder.map_or_else(
+                                || "Open".to_owned(),
+                                |f| format!("Open ({})", f.display()),
+                            ));
+                        if title.clicked() {
+                            open = Some((note.path.clone(), None));
+                        }
+                    }
+                    let snippet = egui::RichText::new(&hit.snippet).small();
+                    let line = ui
+                        .add(
+                            egui::Button::new(snippet)
+                                .frame(false)
+                                .wrap_mode(egui::TextWrapMode::Wrap),
+                        )
+                        .on_hover_text(format!("Go to line {}", hit.line + 1));
+                    if line.clicked() {
+                        open = Some((note.path.clone(), Some(hit.char_offset)));
+                    }
+                }
+            });
+        if let Some((path, offset)) = open {
+            let ctx = ui.ctx().clone();
+            self.open_note_at(path, offset, &ctx);
+        }
+    }
+
     fn editor(&mut self, ui: &mut egui::Ui) {
+        let editor_id = egui::Id::new("nt_editor");
+        let focused = ui.memory(|m| m.has_focus(editor_id));
+        // The link suggestions take Enter, Tab and the arrows before the editor does.
+        let nav = if focused {
+            self.link_complete.consume_keys(ui.ctx())
+        } else {
+            None
+        };
         egui::ScrollArea::vertical()
             .id_salt("editor")
             .auto_shrink(false)
@@ -941,7 +1155,7 @@ impl NtApp {
                 if let Some(offset) = self.jump_to.take() {
                     let cursor = CCursor::new(offset);
                     let id = output.response.response.id;
-                    let mut state = output.state;
+                    let mut state = output.state.clone();
                     state.cursor.set_char_range(Some(CCursorRange::one(cursor)));
                     state.store(ui.ctx(), id);
                     ui.memory_mut(|m| m.request_focus(id));
@@ -951,7 +1165,54 @@ impl NtApp {
                         .translate(output.galley_pos.to_vec2());
                     ui.scroll_to_rect(rect, Some(egui::Align::TOP));
                 }
+                self.complete_links(ui, &output, focused, nav);
             });
+    }
+
+    /// Suggests notes while a `[[link` is being typed, and inserts the chosen one.
+    fn complete_links(
+        &mut self,
+        ui: &egui::Ui,
+        output: &egui::text_edit::TextEditOutput,
+        focused: bool,
+        nav: Option<link_complete::Nav>,
+    ) {
+        let cursor = output
+            .cursor_range
+            .filter(|r| r.is_empty())
+            .map(|r| r.primary);
+        let link = cursor
+            .filter(|_| focused && self.settings.root.is_some())
+            .and_then(|c| link_complete::context(&self.doc.text, c.index.0));
+        if link.is_none() && !self.link_complete.is_open() {
+            return;
+        }
+        self.index();
+        let Some(index) = self.index.as_ref() else {
+            return;
+        };
+        let mut chosen = self.link_complete.update(link.clone(), index, nav);
+        if let Some(cursor) = cursor {
+            let anchor = output
+                .galley
+                .pos_from_cursor(cursor)
+                .translate(output.galley_pos.to_vec2())
+                .left_bottom();
+            if let Some(title) = self.link_complete.popup(ui.ctx(), anchor, index) {
+                chosen = Some(title);
+            }
+        }
+        if let (Some(title), Some(link), Some(cursor)) = (chosen, link, cursor) {
+            let at = link_complete::accept(&mut self.doc.text, &link, cursor.index.0, &title);
+            let id = output.response.response.id;
+            let mut state = output.state.clone();
+            state
+                .cursor
+                .set_char_range(Some(CCursorRange::one(CCursor::new(at))));
+            state.store(ui.ctx(), id);
+            ui.memory_mut(|m| m.request_focus(id));
+            ui.ctx().request_repaint();
+        }
     }
 
     fn preview(&mut self, ui: &mut egui::Ui) {
@@ -1009,6 +1270,7 @@ impl NtApp {
             let ctx = ui.ctx().clone();
             let hints = [
                 ("quick add", SHORTCUT_QUICK_ADD),
+                ("go to note", SHORTCUT_QUICK_OPEN),
                 ("graph", SHORTCUT_GRAPH),
                 ("new note", SHORTCUT_NEW),
                 ("sidebar", SHORTCUT_SIDEBAR),
@@ -1362,6 +1624,7 @@ impl eframe::App for NtApp {
             }
         }
         self.quick_add_popup(&ctx);
+        self.search_palette(&ctx);
 
         // One modal at a time; the unsaved-changes prompt comes first.
         if self.pending.is_some() {
