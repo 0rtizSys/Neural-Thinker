@@ -40,6 +40,13 @@ pub(super) fn set_property(
                 "--graph-edge" => g.edge = Some(c),
                 "--graph-highlight" => g.highlight = Some(c),
                 "--graph-label" => g.label = Some(c),
+                slot if slot.starts_with("--graph-tag-") => {
+                    let n: usize = slot["--graph-tag-".len()..].parse().unwrap_or(0);
+                    match g.tag_slots.get_mut(n.wrapping_sub(1)) {
+                        Some(s) => *s = Some(c),
+                        None => unreachable!("{name} is listed as a color"),
+                    }
+                }
                 _ => unreachable!("{name} is listed as a color"),
             }
         }

@@ -33,7 +33,8 @@ impl Rng {
 }
 
 /// A vault shaped like a real one: folders of related notes, a few hubs that
-/// many notes link to, most links inside a folder and some across.
+/// many notes link to, most links inside a folder and some across, and a
+/// tag on most notes.
 pub(crate) fn synthetic_notes(n: usize) -> Vec<(PathBuf, String)> {
     let mut rng = Rng::new(n as u64);
     let folders = (n / 60).max(1);
@@ -41,6 +42,10 @@ pub(crate) fn synthetic_notes(n: usize) -> Vec<(PathBuf, String)> {
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         let mut text = format!("# Note {i}\n\n- [ ] task\n");
+        // Most notes carry a tag shared by their folder, so nodes get colors.
+        if rng.below(10) < 7 {
+            text.push_str(&format!("#topic-{}\n", folder_of(i) % 12));
+        }
         let links = 1 + rng.below(4);
         for _ in 0..links {
             let target = match rng.below(10) {

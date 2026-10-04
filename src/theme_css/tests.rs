@@ -63,6 +63,24 @@ fn modes_vars_and_aliases() {
 }
 
 #[test]
+fn tag_colors() {
+    let css = r#"
+        :root { --tag-Work: #ff0000; --graph-tag-3: #00ff00; --my: #123456; --tag-ideas: var(--my); }
+        .theme-light { --tag-work: #0000ff; }
+        :root { --tag-bad: nope; }
+    "#;
+    let p = parse(css);
+    assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
+    assert!(p.warnings[0].contains("--tag-bad"));
+    let (dark, light) = (&p.spec.dark.graph, &p.spec.light.graph);
+    assert_eq!(dark.tags["work"], Color32::from_rgb(255, 0, 0));
+    assert_eq!(light.tags["work"], Color32::from_rgb(0, 0, 255));
+    assert_eq!(dark.tags["ideas"], Color32::from_rgb(0x12, 0x34, 0x56));
+    assert_eq!(dark.tag_slots[2], Some(Color32::from_rgb(0, 255, 0)));
+    assert!(!dark.tags.contains_key("bad"));
+}
+
+#[test]
 fn bad_input_only_warns() {
     let css = r#"
             @import url("other.css");

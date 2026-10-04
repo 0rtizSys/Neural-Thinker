@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::links::{self, Link};
+use crate::tags;
 use crate::vault::{Entry, EntryKind};
 
 /// Notes larger than this are shown as nodes but not scanned for links.
@@ -18,6 +19,8 @@ pub struct Node {
     pub title: String,
     /// Number of distinct notes this one is linked with, in either direction.
     pub degree: usize,
+    /// Lowercase tags, frontmatter first (see `tags`); the first one colors the node.
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -55,7 +58,9 @@ impl Graph {
         }
 
         let mut edges = HashSet::new();
+        let mut tags = Vec::with_capacity(texts.len());
         for (from, text) in texts.iter().enumerate() {
+            tags.push(tags::extract(text));
             let dir = paths[from].parent().unwrap_or(Path::new(""));
             for link in links::extract(text) {
                 let to = match link {
@@ -80,10 +85,12 @@ impl Graph {
         let nodes = paths
             .into_iter()
             .zip(degree)
-            .map(|(path, degree)| Node {
+            .zip(tags)
+            .map(|((path, degree), tags)| Node {
                 title: stem(&path),
                 path,
                 degree,
+                tags,
             })
             .collect();
         Self { nodes, edges }
@@ -157,6 +164,16 @@ mod tests {
         let degrees: Vec<_> = g.nodes.iter().map(|n| n.degree).collect();
         assert_eq!(degrees, [1, 2, 1, 0]);
         assert_eq!(g.nodes[1].title, "Ideas");
+    }
+
+    #[test]
+    fn nodes_carry_their_tags() {
+        let g = graph(&[
+            ("/v/a.md", "---\ntags: [plan]\n---\n#todo [[b]]"),
+            ("/v/b.md", ""),
+        ]);
+        assert_eq!(g.nodes[0].tags, ["plan", "todo"]);
+        assert!(g.nodes[1].tags.is_empty());
     }
 
     #[test]

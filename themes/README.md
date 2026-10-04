@@ -146,6 +146,34 @@ Anything you leave out keeps the built-in look, so a theme can be a single line.
 | `--graph-edge` | Lines between linked notes (keep them faint) |
 | `--graph-highlight` | The open note, the hovered node and its neighbours. Defaults to `--accent` |
 | `--graph-label` | Note names next to nodes. Defaults to `--text` |
+| `--graph-tag-1` | First automatic tag color (see "Tag colors" below) |
+| `--graph-tag-2` | Second automatic tag color |
+| `--graph-tag-3` | Third automatic tag color |
+| `--graph-tag-4` | Fourth automatic tag color |
+| `--graph-tag-5` | Fifth automatic tag color |
+| `--graph-tag-6` | Sixth automatic tag color |
+| `--graph-tag-7` | Seventh automatic tag color |
+| `--graph-tag-8` | Eighth automatic tag color |
+| `--tag-<name>` | Notes tagged `#<name>`, e.g. `--tag-work` |
+
+#### Tag colors
+
+Write `#work` anywhere in a note (or `tags: [work]` at the top, between `---` lines) and
+its node in the graph turns the color of that tag. A note with several tags uses the
+**first** one, so put the one you care about first.
+
+Give a tag its own color with `--tag-` plus the tag name:
+
+```css
+:root {
+    --tag-work: #e0a458;
+    --tag-ideas: #6fa8ff;
+}
+```
+
+A nested tag like `#work/meetings` uses `--tag-work/meetings` if you set it, otherwise its
+parent's `--tag-work`. Tags without a color of their own get one of the eight automatic
+colors, which you can change with `--graph-tag-1` to `--graph-tag-8`.
 
 ### Fonts and text sizes
 
@@ -281,6 +309,16 @@ Each recipe is a complete theme: save it as a new `.css` file and pick it.
     --graph-node: #5c6773;
     --graph-edge: rgb(92 103 115 / 18%);
     --graph-label: #8b96a1;
+}
+```
+
+**Colored tags**
+
+```css
+:root {
+    --tag-work: #e0a458;
+    --tag-ideas: #6fa8ff;
+    --tag-personal: #8fcf6b;
 }
 ```
 

@@ -20,6 +20,7 @@ mod quick_add;
 mod quick_css;
 mod search;
 pub mod services;
+mod tags;
 mod theme;
 mod theme_css;
 mod vault;

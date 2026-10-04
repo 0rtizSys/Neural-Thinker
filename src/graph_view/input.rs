@@ -2,32 +2,44 @@
 
 use std::path::PathBuf;
 
-use eframe::egui::{self, Rect};
+use eframe::egui::{self, Rect, Vec2};
 
+use super::navigation::{HELP_2D, HELP_3D};
 use super::simulation::seed_position;
 use super::{GraphSettings, GraphView};
 
 impl GraphView {
     pub(super) fn toolbar(&mut self, ui: &mut egui::Ui, settings: &mut GraphSettings) {
-        ui.horizontal(|ui| {
+        // Wraps in a narrow pane rather than pushing the graph out of it.
+        ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut settings.three_d, false, "2D");
             ui.selectable_value(&mut settings.three_d, true, "3D");
             ui.separator();
             if settings.three_d {
                 ui.label("Depth");
+                ui.spacing_mut().slider_width = 70.0;
                 ui.add(egui::Slider::new(&mut settings.depth, 0.0..=2.0).show_value(false));
                 ui.toggle_value(&mut settings.auto_rotate, "Rotate")
                     .on_hover_text("Slowly turn the graph");
             }
             ui.toggle_value(&mut settings.labels, "Labels")
                 .on_hover_text("Show note names when zoomed in");
-            if ui.button("Fit").on_hover_text("Frame every note").clicked() {
-                self.auto_fit = true;
+            if !self.tag_names.is_empty() {
+                ui.toggle_value(&mut settings.legend, "Tags")
+                    .on_hover_text("Show the tag colors; click a tag to highlight its notes");
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (notes, links) = self.counts();
-                ui.weak(format!("{notes} notes · {links} links"));
-            });
+            if ui
+                .button("Fit")
+                .on_hover_text("Frame every note (F)")
+                .clicked()
+            {
+                self.fit();
+            }
+            ui.separator();
+            let (notes, links) = self.counts();
+            // The mouse and keyboard controls, on hover.
+            ui.weak(format!("{notes} notes · {links} links · Keys"))
+                .on_hover_text(if settings.three_d { HELP_3D } else { HELP_2D });
         });
     }
 
@@ -56,12 +68,22 @@ impl GraphView {
         if response.drag_started() {
             // Nodes can be dragged in 2D; in 3D every drag turns the camera.
             self.dragged_node = if settings.three_d { None } else { hovered };
+            self.drag_pans = ui.input(|i| i.modifiers.shift)
+                || response.dragged_by(egui::PointerButton::Secondary)
+                || response.dragged_by(egui::PointerButton::Middle);
+            self.drag_vel = Vec2::ZERO;
+            self.pan_vel = Vec2::ZERO;
+            self.orbit_vel = Vec2::ZERO;
+            response.request_focus();
         }
         if response.dragged() {
             let delta = response.drag_delta();
-            let pan = ui.input(|i| i.modifiers.shift)
-                || response.dragged_by(egui::PointerButton::Secondary)
-                || response.dragged_by(egui::PointerButton::Middle);
+            let pan = self.drag_pans;
+            let (dt, now) = ui.input(|i| (i.stable_dt.max(1e-3), i.time));
+            if delta != Vec2::ZERO {
+                self.drag_vel += (delta / dt - self.drag_vel) * 0.5;
+                self.drag_moved_at = now;
+            }
             if let Some(i) = self.dragged_node {
                 self.pos[i][0] += delta.x / self.zoom;
                 self.pos[i][1] += delta.y / self.zoom;
@@ -72,9 +94,22 @@ impl GraphView {
             } else {
                 self.pan += delta;
                 self.auto_fit = false;
+                self.center_on = None;
             }
         }
         if response.drag_stopped() {
+            // Let the view glide on, unless the pointer had come to rest.
+            let recent = ui.input(|i| i.time) - self.drag_moved_at < 0.08;
+            if self.dragged_node.is_none() && recent {
+                let v = self
+                    .drag_vel
+                    .clamp(Vec2::splat(-3000.0), Vec2::splat(3000.0));
+                if settings.three_d && !self.drag_pans {
+                    self.orbit_vel = Vec2::new(-v.x, v.y) * 0.008;
+                } else {
+                    self.pan_vel = v;
+                }
+            }
             self.dragged_node = None;
         }
 
@@ -90,16 +125,20 @@ impl GraphView {
                 }
                 self.zoom = new_zoom;
                 self.auto_fit = false;
+                self.center_on = None;
+                self.center_zoom = None;
             }
         }
 
-        if response.clicked()
-            && let Some(i) = hovered
-        {
-            return Some(self.graph.nodes[i].path.clone());
+        if response.clicked() {
+            match hovered {
+                Some(i) => return Some(self.graph.nodes[i].path.clone()),
+                // Clicking empty space gives the graph the keyboard.
+                None => response.request_focus(),
+            }
         }
         if response.double_clicked() && hovered.is_none() {
-            self.auto_fit = true;
+            self.fit();
         }
         None
     }

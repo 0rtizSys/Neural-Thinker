@@ -53,6 +53,10 @@
     --graph-edge: rgb(168 156 142 / 22%);
     --graph-highlight: var(--ember);
     --graph-label: #e6ddd2;
+
+    /* Tags: notes whose first tag is #ideas, and the automatic colors' first slot. */
+    --tag-ideas: #9fc3a8;
+    --graph-tag-1: #d9a066;
 }
 
 /* Light mode. @media (prefers-color-scheme: light) { :root { ... } } works too. */

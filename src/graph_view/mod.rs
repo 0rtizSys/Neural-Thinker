@@ -6,13 +6,21 @@
 //! large graphs (see `graph_layout`), and each frame draws all links as one
 //! mesh and skips whatever is off screen, so vaults of thousands of notes
 //! stay smooth.
+//!
+//! Notes are colored by their first tag (theme `--tag-<name>` or one of the
+//! eight `--graph-tag-N` colors), with a small legend that highlights a tag
+//! (`tag_colors`). The camera moves with the keyboard (WASD, arrows, Q/E,
+//! +/-), glides on after a drag, and `F` / `C` frame the graph or center a
+//! note (`navigation`).
 
 #[cfg(test)]
 mod bench;
 mod camera;
 mod input;
+mod navigation;
 mod render;
 mod simulation;
+mod tag_colors;
 #[cfg(test)]
 mod tests;
 
@@ -46,6 +54,21 @@ const CAMERA_DISTANCE: f32 = 700.0;
 const PREWARM_STEPS: usize = 60;
 /// ...unless they take longer than this (large vaults then settle on screen).
 const PREWARM_BUDGET: Duration = Duration::from_millis(40);
+/// Keyboard camera speeds, per second: screen points, radians, zoom (log).
+const KEY_PAN_SPEED: f32 = 650.0;
+const KEY_ORBIT_SPEED: f32 = 1.7;
+const KEY_ZOOM_SPEED: f32 = 1.3;
+/// Speed multiplier while Shift is held.
+const KEY_FAST: f32 = 2.5;
+/// How quickly the camera reaches the speed the keys ask for (per second)...
+const KEY_RESPONSE: f32 = 14.0;
+/// ...and how quickly it slows down once nothing pushes it, so drags and key
+/// presses glide to a stop instead of halting.
+const GLIDE_FRICTION: f32 = 5.0;
+/// Most legend rows; the rest of the tags are counted on one line.
+const LEGEND_ROWS: usize = 8;
+/// Marks a node without tags in `node_tag`.
+const NO_TAG: u32 = u32::MAX;
 
 /// View options persisted with the other settings.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -58,6 +81,8 @@ pub struct GraphSettings {
     pub labels: bool,
     /// Slowly turn the 3D graph. Off by default: it keeps the GPU busy.
     pub auto_rotate: bool,
+    /// Show the tag legend (when the notes have tags).
+    pub legend: bool,
 }
 
 impl Default for GraphSettings {
@@ -67,6 +92,7 @@ impl Default for GraphSettings {
             depth: 1.0,
             labels: true,
             auto_rotate: false,
+            legend: true,
         }
     }
 }
@@ -99,6 +125,31 @@ pub struct GraphView {
     /// Last hovered node, kept while the highlight fades out.
     focus: Option<usize>,
     was_three_d: bool,
+    /// Distinct first tags, most used first, with their note counts and
+    /// automatic color slot.
+    tag_names: Vec<String>,
+    tag_counts: Vec<usize>,
+    tag_slot: Vec<u8>,
+    /// Index into `tag_names` of each node's first tag, or `NO_TAG`.
+    node_tag: Vec<u32>,
+    /// Tag picked in the legend, and which nodes carry it (or a child tag).
+    tag_filter: Option<String>,
+    tag_mask: Vec<bool>,
+    /// Camera velocity: pan in points/s, orbit in rad/s (yaw, pitch), zoom in log/s.
+    pan_vel: Vec2,
+    orbit_vel: Vec2,
+    zoom_vel: f32,
+    /// Smoothed pointer velocity during a drag, handed to the camera on release.
+    drag_vel: Vec2,
+    /// When the pointer last moved during the current drag (egui time), so a
+    /// drag that ends on a still pointer does not glide.
+    drag_moved_at: f64,
+    /// The current drag pans the view (rather than turning it or moving a node).
+    drag_pans: bool,
+    /// Keep this node centered until the user pans...
+    center_on: Option<usize>,
+    /// ...easing the zoom to this level first.
+    center_zoom: Option<f32>,
 }
 
 impl Default for GraphView {
@@ -118,6 +169,20 @@ impl Default for GraphView {
             dragged_node: None,
             focus: None,
             was_three_d: false,
+            tag_names: Vec::new(),
+            tag_counts: Vec::new(),
+            tag_slot: Vec::new(),
+            node_tag: Vec::new(),
+            tag_filter: None,
+            tag_mask: Vec::new(),
+            pan_vel: Vec2::ZERO,
+            orbit_vel: Vec2::ZERO,
+            zoom_vel: 0.0,
+            drag_vel: Vec2::ZERO,
+            drag_moved_at: 0.0,
+            drag_pans: false,
+            center_on: None,
+            center_zoom: None,
         }
     }
 }
@@ -149,9 +214,12 @@ impl GraphView {
         self.vel = vec![[0.0; 3]; n];
         self.focus = None;
         self.dragged_node = None;
+        self.center_on = None;
+        self.center_zoom = None;
         self.was_three_d = three_d;
         (self.adjacent_start, self.adjacent) = adjacency(&graph);
         self.graph = graph;
+        self.index_tags();
         if old.is_empty() {
             self.alpha = 1.0;
             let start = Instant::now();
