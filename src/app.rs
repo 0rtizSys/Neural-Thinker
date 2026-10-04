@@ -15,6 +15,7 @@ use crate::graph::Graph;
 use crate::graph_view::{GraphSettings, GraphView};
 use crate::link_complete::{self, LinkComplete};
 use crate::palette::{self, Palette};
+use crate::quick_css::{self, QuickCss};
 use crate::search::NoteIndex;
 use crate::services::{Services, VaultEvent};
 use crate::vault::{self, Entry, EntryKind};
@@ -34,6 +35,8 @@ const SHORTCUT_GRAPH: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAN
 const SHORTCUT_QUICK_OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::P);
 const SHORTCUT_FIND: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::F);
+const SHORTCUT_QUICK_CSS: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::T);
 
 /// Seconds a status message stays before fading out.
 const STATUS_SECONDS: f64 = 4.0;
@@ -159,6 +162,7 @@ pub struct NtApp {
     /// wait for the unsaved-changes prompt).
     open_at: Option<(PathBuf, usize)>,
     themes: CustomThemes,
+    quick_css: QuickCss,
 }
 
 /// A pane the user needs to see after an action.
@@ -221,6 +225,7 @@ impl NtApp {
             link_complete: LinkComplete::default(),
             open_at: None,
             themes,
+            quick_css: QuickCss::default(),
         };
         if app.settings.custom_theme.is_some() {
             app.status = theme_status.unwrap_or_default();
@@ -662,6 +667,9 @@ impl NtApp {
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_FIND)) {
             self.toggle_palette(palette::Mode::Text);
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_QUICK_CSS)) {
+            self.quick_css.toggle();
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_QUICK_OPEN)) {
             self.toggle_palette(palette::Mode::Titles);
         }
@@ -760,6 +768,12 @@ impl NtApp {
                 ui.label(egui::RichText::new("Theme").weak());
                 egui::widgets::global_theme_preference_buttons(ui);
                 self.themes.menu_ui(ui, &mut self.settings.custom_theme);
+                ui.horizontal(|ui| {
+                    if ui.button("Quick CSS...").clicked() {
+                        self.quick_css.open = true;
+                    }
+                    ui.weak(ctx.format_shortcut(&SHORTCUT_QUICK_CSS));
+                });
                 ui.separator();
                 ui.weak("Zoom: Ctrl + / Ctrl - / Ctrl 0");
             });
@@ -824,6 +838,11 @@ impl NtApp {
                 {
                     self.toggle_palette(palette::Mode::Titles);
                 }
+                ui.toggle_value(&mut self.quick_css.open, "🎨 CSS")
+                    .on_hover_text(format!(
+                        "Quick CSS: switch and edit themes ({})",
+                        ctx.format_shortcut(&SHORTCUT_QUICK_CSS)
+                    ));
             });
         });
     }
@@ -1796,6 +1815,12 @@ impl eframe::App for NtApp {
         }
         self.services_window(&ctx);
         self.about_window(&ctx);
+        if let Some(quick_css::Action::Open(path)) =
+            self.quick_css
+                .show(&ctx, &mut self.themes, &mut self.settings.custom_theme)
+        {
+            self.request(Pending::OpenPath(path), &ctx);
+        }
         self.update_title(&ctx);
     }
 

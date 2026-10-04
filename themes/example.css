@@ -1,11 +1,11 @@
 /*
  * Neural-Thinker example theme: "Ember".
  *
- * Copy this file, rename it, and pick it in View > Custom theme. The theme
- * reloads every time you save the file. Neural-Thinker reads a safe subset of
- * CSS: only the custom properties below are understood; anything else is
- * skipped and listed as a warning in the View menu. Full reference:
- * docs/THEMES.md in the repository.
+ * Edit it live with the CSS button in the toolbar (Quick CSS), or copy it,
+ * rename it and pick the copy there. The theme reloads every time you save the
+ * file. Neural-Thinker reads a safe subset of CSS: only the custom properties
+ * below are understood; anything else is skipped and listed as a warning.
+ * README.md in this folder explains every variable and the CSS basics.
  */
 
 /* Shared by light and dark mode. */
