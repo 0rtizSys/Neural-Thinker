@@ -74,7 +74,7 @@ implemented, and phase 4 adds custom CSS themes:
 - Minimal default theme with one accent color and short (~0.15 s) transitions: panes glide into
   place, popups fade, status messages fade out.
 
-The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. Markdown is rendered with `egui_commonmark`.
+The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. The Markdown preview is drawn by the application itself (`src/markdown/preview.rs`), following Obsidian conventions: single line breaks are kept, nested lists show indentation guides, and task items show only their checkbox.
 
 ## Download (Windows)
 

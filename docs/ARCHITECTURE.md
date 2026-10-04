@@ -82,6 +82,8 @@ The Hyprland-style tiling dock that places panes in the main window.
 | `palette.rs` | The quick open / search popup |
 | `link_complete.rs` | `[[link]]` autocomplete in the editor |
 | `markdown/mod.rs` | Fenced code blocks, list items, and splitting a note into Markdown and code for the preview |
+| `markdown/blocks.rs` | Block structure for the preview (Obsidian rules: kept line breaks, nesting by indentation, renumbered lists, tasks) |
+| `markdown/preview.rs` | Draws the preview: headings, lists with guide lines and clickable task boxes, quotes, tables, links |
 | `markdown/layout.rs` | Colored layout of the Markdown source in the editor, cached while the text is unchanged |
 | `highlight/mod.rs` | Code block tokenizer (keywords, types, strings, numbers, comments) and fence language lookup |
 | `highlight/languages.rs` | The language table (~25 languages) |

@@ -184,6 +184,14 @@ impl NoteIndex {
         }
     }
 
+    /// The file a `[[wiki link]]` target names, if the note exists.
+    pub fn find_wiki(&self, target: &str) -> Option<&Path> {
+        // `[[Note#heading]]` opens Note.
+        let name = target.split('#').next().unwrap_or(target);
+        let i = *self.by_name.get(&links::wiki_key(name.trim()))?;
+        Some(&self.notes[i].path)
+    }
+
     /// Index of the note at `path`.
     pub fn find_path(&self, path: &Path) -> Option<usize> {
         self.by_path.get(&graph::normalize(path)).copied()

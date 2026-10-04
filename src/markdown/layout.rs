@@ -75,6 +75,16 @@ pub fn append_code(job: &mut LayoutJob, code: &str, lang: Option<&highlight::Lan
     }
 }
 
+/// Appends the body of a fenced block: ```` ```md ```` blocks get the editor's
+/// Markdown colors, other blocks their language's (plain when unknown).
+pub fn append_block(job: &mut LayoutJob, code: &str, info: &str, style: &Style) {
+    if super::is_markdown_info(info) {
+        markdown_lines(job, code, style);
+    } else {
+        append_code(job, code, highlight::lang(info), style);
+    }
+}
+
 fn plain(style: &Style, color: Color32) -> TextFormat {
     TextFormat::simple(style.font.clone(), color)
 }
@@ -115,7 +125,7 @@ pub fn layout_job(text: &str, style: &Style) -> LayoutJob {
         job.append(&open[info_at..], 0.0, plain(style, style.syntax.keyword));
         let after_open = fence.open.end..fence.body.start.max(fence.open.end);
         job.append(&text[after_open], 0.0, marker.clone());
-        append_code(&mut job, &text[fence.body.clone()], fence.lang(), style);
+        append_block(&mut job, &text[fence.body.clone()], &fence.info, style);
         if let Some(close) = &fence.close {
             job.append(&text[close.clone()], 0.0, marker);
         }
@@ -228,14 +238,14 @@ fn markdown_line(job: &mut LayoutJob, line: &str, style: &Style) {
 }
 
 /// `#` .. `######` followed by a space or the end of the line.
-fn heading_level(body: &str) -> Option<usize> {
+pub(super) fn heading_level(body: &str) -> Option<usize> {
     let level = body.len() - body.trim_start_matches('#').len();
     ((1..=6).contains(&level) && (body.len() == level || body[level..].starts_with([' ', '\t'])))
         .then_some(level)
 }
 
 /// `---`, `***` or `___`, spaces allowed between.
-fn is_rule(body: &str) -> bool {
+pub(super) fn is_rule(body: &str) -> bool {
     let Some(ch) = body.chars().next().filter(|c| matches!(c, '-' | '*' | '_')) else {
         return false;
     };

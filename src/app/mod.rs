@@ -13,7 +13,6 @@ mod search;
 use std::path::PathBuf;
 
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
-use egui_commonmark::CommonMarkCache;
 use serde::{Deserialize, Serialize};
 
 use crate::advanced::Advanced;
@@ -129,7 +128,6 @@ pub struct NtApp {
     settings: Settings,
     services: Services,
     doc: Document,
-    md_cache: CommonMarkCache,
     pending: Option<Pending>,
     allow_close: bool,
     status: String,
@@ -213,7 +211,6 @@ impl NtApp {
             settings,
             services,
             doc: Document::new(),
-            md_cache: CommonMarkCache::default(),
             pending: None,
             allow_close: false,
             status: String::new(),
