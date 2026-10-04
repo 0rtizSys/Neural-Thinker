@@ -979,5 +979,12 @@ mod tests {
                 "{name} missing from docs/THEMES.md"
             );
         }
+        let guide = crate::custom_theme::GUIDE;
+        for (name, ..) in PROPERTIES {
+            assert!(
+                guide.contains(&format!("| `{name}` |")),
+                "{name} missing from themes/README.md"
+            );
+        }
     }
 }

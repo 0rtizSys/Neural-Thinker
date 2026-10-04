@@ -12,8 +12,12 @@ use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
 use crate::theme::{self, ThemeSpec};
 use crate::theme_css::{self, FontRequest, FontSource, MAX_THEME_BYTES};
 
-/// Written into a newly created themes folder as a starting point.
+/// Written into the themes folder as a starting point.
 pub const SAMPLE_THEME: &str = include_str!("../themes/example.css");
+/// The beginner's guide to themes, written next to the themes.
+pub const GUIDE: &str = include_str!("../themes/README.md");
+pub const GUIDE_NAME: &str = "README.md";
+
 const SAMPLE_NAME: &str = "example.css";
 
 /// Largest font file loaded.
@@ -68,14 +72,16 @@ pub struct CustomThemes {
 type Stamp = Option<(u64, SystemTime)>;
 
 impl CustomThemes {
-    /// Creates the themes folder (with a sample theme) if needed and starts watching it.
+    /// Creates the themes folder (with a sample theme) if needed, restores the
+    /// guide if it is missing and starts watching the folder.
     pub fn new(ctx: &egui::Context) -> Self {
         let dir = themes_dir();
-        if let Some(dir) = &dir
-            && !dir.exists()
-            && std::fs::create_dir_all(dir).is_ok()
-        {
-            let _ = std::fs::write(dir.join(SAMPLE_NAME), SAMPLE_THEME);
+        if let Some(dir) = &dir {
+            // The sample is written once, so deleting it sticks.
+            if !dir.exists() && std::fs::create_dir_all(dir).is_ok() {
+                let _ = std::fs::write(dir.join(SAMPLE_NAME), SAMPLE_THEME);
+            }
+            write_guide(dir);
         }
         let generation = Arc::new(AtomicU64::new(0));
         if let Some(dir) = dir.clone() {
@@ -155,7 +161,41 @@ impl CustomThemes {
         message
     }
 
-    fn read(&self, name: &str) -> Result<String, String> {
+    /// The themes folder, if one could be located.
+    pub fn dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
+    }
+
+    /// `.css` file names in the folder, sorted.
+    pub fn available(&self) -> &[String] {
+        &self.available
+    }
+
+    /// Changes whenever the folder's contents change or a reload is requested.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    /// Reloads the selected theme on the next frame.
+    pub fn refresh(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn open_folder(&self) {
+        if let Some(dir) = &self.dir {
+            open_folder(dir);
+        }
+    }
+
+    /// Path of the guide, restoring it first if it was deleted.
+    pub fn guide_path(&self) -> Option<PathBuf> {
+        let dir = self.dir.as_deref()?;
+        write_guide(dir);
+        Some(dir.join(GUIDE_NAME)).filter(|p| p.is_file())
+    }
+
+    /// Reads a theme file, refusing files over the size limit.
+    pub fn read(&self, name: &str) -> Result<String, String> {
         let dir = self.dir.as_deref().ok_or("no themes folder")?;
         let path = dir.join(name);
         let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
@@ -237,25 +277,7 @@ impl CustomThemes {
         {
             let _ = ui.radio(true, format!("{name} (missing)"));
         }
-        if let Some(e) = &self.report.error {
-            ui.colored_label(ui.visuals().error_fg_color, e);
-        }
-        if !self.report.warnings.is_empty() {
-            let n = self.report.warnings.len();
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                if n == 1 {
-                    "1 warning".to_string()
-                } else {
-                    format!("{n} warnings")
-                },
-            )
-            .on_hover_ui(|ui| {
-                for w in &self.report.warnings {
-                    ui.label(w);
-                }
-            });
-        }
+        self.report_ui(ui);
         ui.horizontal(|ui| {
             if let Some(dir) = &self.dir
                 && ui
@@ -275,6 +297,38 @@ impl CustomThemes {
             }
         });
         *selected != before
+    }
+
+    /// The load error and warning count of the selected theme, with the warnings
+    /// listed on hover.
+    pub fn report_ui(&self, ui: &mut egui::Ui) {
+        if let Some(e) = &self.report.error {
+            ui.colored_label(ui.visuals().error_fg_color, e);
+        }
+        if !self.report.warnings.is_empty() {
+            let n = self.report.warnings.len();
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                if n == 1 {
+                    "1 warning".to_string()
+                } else {
+                    format!("{n} warnings")
+                },
+            )
+            .on_hover_ui(|ui| {
+                for w in &self.report.warnings {
+                    ui.label(w);
+                }
+            });
+        }
+    }
+}
+
+/// Writes the guide into `dir` if it is not there.
+fn write_guide(dir: &Path) {
+    let path = dir.join(GUIDE_NAME);
+    if dir.is_dir() && !path.exists() {
+        let _ = std::fs::write(path, GUIDE);
     }
 }
 
@@ -366,6 +420,19 @@ fn spawn_watcher(dir: PathBuf, generation: Arc<AtomicU64>, ctx: egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guide_examples_are_clean() {
+        let blocks = GUIDE.split("```css").skip(1);
+        let mut n = 0;
+        for block in blocks {
+            let css = block.split("```").next().unwrap();
+            let parsed = crate::theme_css::parse(css);
+            assert!(parsed.warnings.is_empty(), "{css}\n{:?}", parsed.warnings);
+            n += 1;
+        }
+        assert!(n >= 10);
+    }
 
     #[test]
     fn bad_font_is_rejected_without_panicking() {

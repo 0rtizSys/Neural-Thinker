@@ -18,6 +18,22 @@ and portable across releases.
 3. Pick it in **View > Custom theme (CSS)**. The choice is remembered across runs;
    **Built-in** restores the default look.
 
+The folder also holds `README.md`, a beginner's guide to CSS, `:root` and what each
+variable paints. The app writes it again whenever it is missing.
+
+### Quick CSS
+
+The **CSS** button in the toolbar (or **Ctrl+Shift+T**, or **View > Quick CSS...**) opens a
+small window that does the above without leaving the app:
+
+- every theme in the folder is listed; one click activates it;
+- the selected theme is shown in an editor and saved 0.35 s after you stop typing, so the
+  app restyles itself as you type; warnings appear under the editor;
+- **Create** makes a new theme from a short starter template (an empty name creates
+  nothing); **Guide** opens `README.md` in the main editor; **Folder** opens the folder.
+
+Edits made in another editor show up in Quick CSS as long as it holds no unsaved changes.
+
 The theme reloads whenever a file in the themes folder (or one of its direct subfolders,
 such as `fonts/`) changes; **Reload** forces it. The folder is checked twice a second on a
 background thread, and the window repaints only when something changed.

@@ -16,6 +16,7 @@ mod links;
 mod outline;
 mod palette;
 mod quick_add;
+mod quick_css;
 mod search;
 pub mod services;
 mod theme;
