@@ -3,7 +3,6 @@
 
 use eframe::egui::{self, Key};
 use egui::text::{CCursor, CCursorRange};
-use egui_commonmark::CommonMarkViewer;
 
 use crate::link_complete::{self};
 use crate::{markdown, smart_edit, widgets};
@@ -186,15 +185,19 @@ impl NtApp {
 
     pub(super) fn preview(&mut self, ui: &mut egui::Ui) {
         let highlight = self.settings.advanced.syntax_highlighting;
+        let mut actions = Vec::new();
         egui::ScrollArea::vertical()
             .id_salt("preview")
             .auto_shrink(false)
             .show(ui, |ui| {
                 let view = ui.clip_rect();
-                for (n, segment) in markdown::segments(&self.doc.text).into_iter().enumerate() {
+                let note = self.doc.text.as_str();
+                for (n, segment) in markdown::segments(note).into_iter().enumerate() {
                     ui.push_id(n, |ui| match segment {
                         markdown::Segment::Markdown(text) => {
-                            CommonMarkViewer::new().show(ui, &mut self.md_cache, text);
+                            // Segments borrow the note, so this is their byte offset in it.
+                            let base = text.as_ptr() as usize - note.as_ptr() as usize;
+                            markdown::preview::show(ui, text, Some(base), &mut actions);
                         }
                         markdown::Segment::Code { info, code } => {
                             code_block(ui, info, code, highlight);
@@ -211,16 +214,51 @@ impl NtApp {
                 });
                 widgets::drag_autoscroll(ui, selecting);
             });
+        for action in actions {
+            self.preview_action(action, ui.ctx());
+        }
+    }
+
+    /// Carries out a click in the preview: a task box, a note link or a web link.
+    fn preview_action(&mut self, action: markdown::preview::Action, ctx: &egui::Context) {
+        use markdown::preview::Action;
+        match action {
+            Action::ToggleTask(at) => {
+                let text = &mut self.doc.text;
+                let mark = match text.get(at + 1..at + 2) {
+                    Some(" ") => "x",
+                    Some("x" | "X") => " ",
+                    _ => return,
+                };
+                text.replace_range(at + 1..at + 2, mark);
+                ctx.request_repaint();
+            }
+            Action::OpenWiki(target) => {
+                self.index();
+                let path = self
+                    .index
+                    .as_ref()
+                    .and_then(|index| index.find_wiki(&target))
+                    .map(|p| p.to_path_buf());
+                if let Some(path) = path {
+                    self.open_note_at(path, None, ctx);
+                }
+            }
+            Action::OpenUrl(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
+        }
     }
 }
 
 /// A fenced code block in the preview: colored for its language (plain when it has
 /// none), with the language name and a copy button.
 fn code_block(ui: &mut egui::Ui, info: &str, code: &str, highlight: bool) {
-    let lang = crate::highlight::lang(info).filter(|_| highlight);
     let style = markdown::Style::from_ui(ui);
     let mut job = egui::text::LayoutJob::default();
-    markdown::append_code(&mut job, code, lang, &style);
+    if highlight {
+        markdown::append_block(&mut job, code, info, &style);
+    } else {
+        markdown::append_code(&mut job, code, None, &style);
+    }
     ui.add_space(4.0);
     egui::Frame::new()
         .fill(ui.visuals().code_bg_color)

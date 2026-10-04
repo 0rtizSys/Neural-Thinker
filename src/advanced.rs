@@ -49,7 +49,7 @@ impl Advanced {
                     &mut self.syntax_highlighting,
                     "Syntax highlighting",
                     "Colors Markdown in the editor, and code blocks that name their \
-                     language (```python, ```cpp, ```rust...) in the editor and the \
+                     language (```python, ```cpp, ```rust, ```md...) in the editor and the \
                      preview. Blocks without a language stay plain. Colors come from \
                      the theme (--syntax-* in CSS).",
                 );

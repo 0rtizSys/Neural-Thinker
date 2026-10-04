@@ -2,7 +2,9 @@
 //! split of a note into Markdown and code for the preview. The colored layout
 //! of the source text is in `layout.rs`.
 
+pub mod blocks;
 mod layout;
+pub mod preview;
 #[cfg(test)]
 mod tests;
 
@@ -10,7 +12,7 @@ use std::ops::Range;
 
 use crate::highlight;
 
-pub use layout::{Highlighter, Style, append_code};
+pub use layout::{Highlighter, Style, append_block, append_code};
 
 /// A fenced code block: ```` ```lang ```` ... ```` ``` ````. Ranges are byte offsets.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +39,16 @@ impl Fence {
     pub fn span(&self) -> Range<usize> {
         self.open.start..self.close.as_ref().map_or(self.body.end, |c| c.end)
     }
+}
+
+/// Whether a fence's info string names Markdown (```` ```md ````, ```` ```markdown ````).
+pub fn is_markdown_info(info: &str) -> bool {
+    let word = info.split_whitespace().next().unwrap_or("");
+    let word = word.trim_start_matches('.');
+    let word = word.strip_prefix("language-").unwrap_or(word);
+    ["md", "markdown", "mdown", "mkd"]
+        .iter()
+        .any(|m| word.eq_ignore_ascii_case(m))
 }
 
 /// Lines of `text` as (start, end-without-newline, next-line-start).
