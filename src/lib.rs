@@ -6,6 +6,7 @@
 
 mod app;
 mod custom_theme;
+mod dock;
 mod document;
 mod fuzzy;
 mod graph;

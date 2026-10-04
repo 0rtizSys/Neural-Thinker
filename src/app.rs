@@ -8,6 +8,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
 use crate::custom_theme::CustomThemes;
+use crate::dock::{Dock, Pane, PaneHost, Preset};
 use crate::document::{DEFAULT_EXTENSION, Document};
 use crate::graph::Graph;
 use crate::graph_view::{GraphSettings, GraphView};
@@ -25,7 +26,7 @@ const SHORTCUT_OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND
 const SHORTCUT_SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
 const SHORTCUT_SAVE_AS: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S);
-const SHORTCUT_SIDEBAR: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::B);
+const SHORTCUT_FILES: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::B);
 const SHORTCUT_QUICK_ADD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Space);
 const SHORTCUT_GRAPH: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::G);
 const SHORTCUT_QUICK_OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::P);
@@ -43,72 +44,14 @@ const REQUIRED_NOTICE: &str = "Required Notice: Copyright (c) 2026 0rtizSys \
     (https://github.com/0rtizSys/Neural-Thinker)";
 const LICENSE_TEXT: &str = include_str!("../LICENSE.md");
 
-/// How the editor area is split between source and rendered Markdown.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum ViewMode {
-    Edit,
-    Split,
-    Preview,
-    Graph,
-}
-
-/// Which list the sidebar shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum SidebarTab {
-    Files,
-    Outline,
-    Backlinks,
-}
-
-/// Named combinations of sidebar and view mode, offered in the View menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Layout {
-    Writer,
-    Split,
-    Reader,
-    Focus,
-    Graph,
-}
-
-impl Layout {
-    const ALL: [Layout; 5] = [
-        Layout::Writer,
-        Layout::Split,
-        Layout::Reader,
-        Layout::Focus,
-        Layout::Graph,
-    ];
-
-    fn label(self) -> &'static str {
-        match self {
-            Layout::Writer => "Writer (files + editor)",
-            Layout::Split => "Split (files + editor + preview)",
-            Layout::Reader => "Reader (files + preview)",
-            Layout::Focus => "Focus (editor only)",
-            Layout::Graph => "Graph (files + graph)",
-        }
-    }
-
-    fn sidebar_and_mode(self) -> (bool, ViewMode) {
-        match self {
-            Layout::Writer => (true, ViewMode::Edit),
-            Layout::Split => (true, ViewMode::Split),
-            Layout::Reader => (true, ViewMode::Preview),
-            Layout::Focus => (false, ViewMode::Edit),
-            Layout::Graph => (true, ViewMode::Graph),
-        }
-    }
-}
-
 /// State persisted between runs.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 struct Settings {
     root: Option<PathBuf>,
     last_file: Option<PathBuf>,
-    view_mode: ViewMode,
-    sidebar_visible: bool,
-    sidebar_tab: SidebarTab,
+    /// Where each pane is: docked, hidden or in a window of its own.
+    dock: Dock,
     status_bar_visible: bool,
     show_all_files: bool,
     graph: GraphSettings,
@@ -121,26 +64,12 @@ impl Default for Settings {
         Self {
             root: None,
             last_file: None,
-            view_mode: ViewMode::Split,
-            sidebar_visible: true,
-            sidebar_tab: SidebarTab::Files,
+            dock: Dock::default(),
             status_bar_visible: true,
             show_all_files: false,
             graph: GraphSettings::default(),
             custom_theme: None,
         }
-    }
-}
-
-impl Settings {
-    fn layout(&self) -> Option<Layout> {
-        Layout::ALL
-            .into_iter()
-            .find(|l| l.sidebar_and_mode() == (self.sidebar_visible, self.view_mode))
-    }
-
-    fn apply_layout(&mut self, layout: Layout) {
-        (self.sidebar_visible, self.view_mode) = layout.sidebar_and_mode();
     }
 }
 
@@ -198,8 +127,11 @@ pub struct NtApp {
     graph_view: GraphView,
     /// Rebuild the graph before it is next shown.
     graph_stale: bool,
-    /// The editor mode to return to when a note is opened from the graph.
-    text_mode: ViewMode,
+    /// Panes to bring into view once the dock has been drawn (the dock is
+    /// borrowed while its panes draw, so they ask for it here).
+    reveal: Vec<Reveal>,
+    /// Size and place each popped-out window was opened with.
+    popouts: Vec<crate::dock::Detached>,
     quick_add: QuickAdd,
     /// The status message being shown and when it appeared, for fading it out.
     shown_status: (String, f64),
@@ -215,6 +147,15 @@ pub struct NtApp {
     /// wait for the unsaved-changes prompt).
     open_at: Option<(PathBuf, usize)>,
     themes: CustomThemes,
+}
+
+/// A pane the user needs to see after an action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reveal {
+    /// The editor or the preview, whichever is shown; the editor if neither.
+    Text,
+    /// The editor itself, to place the cursor.
+    Editor,
 }
 
 /// The quick add popup's state.
@@ -235,10 +176,6 @@ impl NtApp {
             .unwrap_or_default();
         let mut themes = CustomThemes::new(&cc.egui_ctx);
         let theme_status = themes.update(&cc.egui_ctx, settings.custom_theme.as_deref());
-        let text_mode = match settings.view_mode {
-            ViewMode::Graph => ViewMode::Split,
-            mode => mode,
-        };
 
         let mut app = Self {
             settings,
@@ -261,7 +198,8 @@ impl NtApp {
             was_focused: true,
             graph_view: GraphView::default(),
             graph_stale: true,
-            text_mode,
+            reveal: Vec::new(),
+            popouts: Vec::new(),
             quick_add: QuickAdd::default(),
             shown_status: (String::new(), 0.0),
             welcome_dismissed: false,
@@ -590,9 +528,7 @@ impl NtApp {
                     ..QuickAdd::default()
                 };
                 if open {
-                    if self.settings.view_mode == ViewMode::Graph {
-                        self.settings.view_mode = self.text_mode;
-                    }
+                    self.reveal.push(Reveal::Text);
                     self.request(Pending::OpenPath(path), ctx);
                 }
             }
@@ -620,16 +556,12 @@ impl NtApp {
 
     /// Opens `path`, placing the cursor at `char_offset` when given.
     fn open_note_at(&mut self, path: PathBuf, char_offset: Option<usize>, ctx: &egui::Context) {
-        if self.settings.view_mode == ViewMode::Graph {
-            self.settings.view_mode = self.text_mode;
-        }
         let Some(offset) = char_offset else {
+            self.reveal.push(Reveal::Text);
             self.apply_nav_action(NavAction::Open(path), ctx);
             return;
         };
-        if self.settings.view_mode == ViewMode::Preview {
-            self.settings.view_mode = ViewMode::Split;
-        }
+        self.reveal.push(Reveal::Editor);
         if self.doc.path() == Some(path.as_path()) {
             self.jump_to = Some(offset);
         } else {
@@ -655,12 +587,19 @@ impl NtApp {
         }
     }
 
-    fn toggle_graph(&mut self) {
-        self.settings.view_mode = if self.settings.view_mode == ViewMode::Graph {
-            self.text_mode
-        } else {
-            ViewMode::Graph
-        };
+    /// Brings the panes asked for with `reveal` into view.
+    fn apply_reveal(&mut self) {
+        let dock = &mut self.settings.dock;
+        for reveal in self.reveal.drain(..) {
+            match reveal {
+                Reveal::Text => {
+                    if !dock.is_visible(Pane::Editor) && !dock.is_visible(Pane::Preview) {
+                        dock.show(Pane::Editor);
+                    }
+                }
+                Reveal::Editor => dock.show(Pane::Editor),
+            }
+        }
     }
 
     // ---- UI -----------------------------------------------------------
@@ -679,14 +618,14 @@ impl NtApp {
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_OPEN)) {
             self.request(Pending::Open, ctx);
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_SIDEBAR)) {
-            self.settings.sidebar_visible = !self.settings.sidebar_visible;
+        if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_FILES)) {
+            self.settings.dock.toggle(Pane::Files);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_QUICK_ADD)) {
             self.toggle_quick_add();
         }
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_GRAPH)) {
-            self.toggle_graph();
+            self.settings.dock.toggle(Pane::Graph);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&SHORTCUT_FIND)) {
             self.toggle_palette(palette::Mode::Text);
@@ -776,27 +715,8 @@ impl NtApp {
                 }
             });
             ui.menu_button("View", |ui| {
-                ui.label(egui::RichText::new("Layout").weak());
-                let current = self.settings.layout();
-                for layout in Layout::ALL {
-                    if ui.radio(current == Some(layout), layout.label()).clicked() {
-                        self.settings.apply_layout(layout);
-                    }
-                }
+                self.layout_menu(ui);
                 ui.separator();
-                let mode = &mut self.settings.view_mode;
-                ui.radio_value(mode, ViewMode::Edit, "Editor only");
-                ui.radio_value(mode, ViewMode::Split, "Editor + preview");
-                ui.radio_value(mode, ViewMode::Preview, "Preview only");
-                ui.horizontal(|ui| {
-                    ui.radio_value(mode, ViewMode::Graph, "Graph");
-                    ui.weak(ctx.format_shortcut(&SHORTCUT_GRAPH));
-                });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.settings.sidebar_visible, "Sidebar");
-                    ui.weak(ctx.format_shortcut(&SHORTCUT_SIDEBAR));
-                });
                 ui.checkbox(&mut self.settings.status_bar_visible, "Status bar");
                 if ui
                     .checkbox(&mut self.settings.show_all_files, "Show non-Markdown files")
@@ -821,21 +741,34 @@ impl NtApp {
             });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mode = &mut self.settings.view_mode;
-                ui.selectable_value(mode, ViewMode::Graph, "Graph")
-                    .on_hover_text(format!(
-                        "Graph of linked notes ({})",
-                        ctx.format_shortcut(&SHORTCUT_GRAPH)
-                    ));
-                ui.selectable_value(mode, ViewMode::Preview, "Preview");
-                ui.selectable_value(mode, ViewMode::Split, "Split");
-                ui.selectable_value(mode, ViewMode::Edit, "Edit");
-                ui.separator();
-                ui.toggle_value(&mut self.settings.sidebar_visible, "Sidebar")
-                    .on_hover_text(format!(
-                        "Show or hide the sidebar ({})",
-                        ctx.format_shortcut(&SHORTCUT_SIDEBAR)
-                    ));
+                let toggles = [
+                    (
+                        Pane::Graph,
+                        format!(
+                            "Graph of linked notes ({})",
+                            ctx.format_shortcut(&SHORTCUT_GRAPH)
+                        ),
+                    ),
+                    (Pane::Preview, "Rendered Markdown".to_owned()),
+                    (Pane::Editor, "Markdown source".to_owned()),
+                    (
+                        Pane::Files,
+                        format!(
+                            "Notes in the root folder ({})",
+                            ctx.format_shortcut(&SHORTCUT_FILES)
+                        ),
+                    ),
+                ];
+                for (pane, hint) in toggles {
+                    let shown = self.settings.dock.is_visible(pane);
+                    if ui
+                        .selectable_label(shown, pane.title())
+                        .on_hover_text(format!("Show or hide: {hint}"))
+                        .clicked()
+                    {
+                        self.settings.dock.toggle(pane);
+                    }
+                }
                 ui.separator();
                 let quick = ui
                     .add(egui::Button::new("+ Quick add").selected(self.quick_add.open))
@@ -919,21 +852,55 @@ impl NtApp {
         });
     }
 
-    fn sidebar(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            let tab = &mut self.settings.sidebar_tab;
-            ui.selectable_value(tab, SidebarTab::Files, "Files");
-            ui.selectable_value(tab, SidebarTab::Outline, "Outline");
-            ui.selectable_value(tab, SidebarTab::Backlinks, "Backlinks")
-                .on_hover_text("Notes that link to this one");
-        });
-        ui.separator();
-        match self.settings.sidebar_tab {
-            SidebarTab::Files => self.files_tab(ui),
-            SidebarTab::Outline => self.outline_tab(ui),
-            SidebarTab::Backlinks => self.backlinks_tab(ui),
+    /// The View menu's layout section: presets and which panes are shown.
+    fn layout_menu(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let dock = &mut self.settings.dock;
+        ui.label(egui::RichText::new("Layout").weak());
+        let current = dock.preset();
+        for preset in Preset::ALL {
+            if ui.radio(current == Some(preset), preset.label()).clicked() {
+                dock.apply_preset(preset);
+            }
         }
+        if ui.button("Reset layout").clicked() {
+            *dock = Dock::default();
+        }
+        ui.separator();
+        ui.label(egui::RichText::new("Panes").weak());
+        for pane in Pane::ALL {
+            let shortcut = match pane {
+                Pane::Files => Some(SHORTCUT_FILES),
+                Pane::Graph => Some(SHORTCUT_GRAPH),
+                _ => None,
+            };
+            ui.horizontal(|ui| {
+                let mut shown = dock.is_visible(pane);
+                if ui.checkbox(&mut shown, pane.title()).changed() {
+                    dock.toggle(pane);
+                }
+                if let Some(shortcut) = shortcut {
+                    ui.weak(ctx.format_shortcut(&shortcut));
+                }
+                if dock.is_detached(pane) {
+                    if ui
+                        .small_button("Dock")
+                        .on_hover_text("Back into the main window")
+                        .clicked()
+                    {
+                        dock.redock(pane);
+                    }
+                } else if dock.is_docked(pane)
+                    && ui
+                        .small_button("Pop out")
+                        .on_hover_text("Open in a window of its own")
+                        .clicked()
+                {
+                    dock.detach(pane, None, egui::vec2(520.0, 420.0));
+                }
+            });
+        }
+        ui.weak("Drag a pane's title to move it; drag the gaps to resize.");
     }
 
     fn files_tab(&mut self, ui: &mut egui::Ui) {
@@ -1049,9 +1016,7 @@ impl NtApp {
                             .clicked()
                         {
                             self.jump_to = Some(heading.char_offset);
-                            if self.settings.view_mode == ViewMode::Preview {
-                                self.settings.view_mode = ViewMode::Split;
-                            }
+                            self.reveal.push(Reveal::Editor);
                         }
                     });
                 }
@@ -1247,7 +1212,7 @@ impl NtApp {
             .graph_view
             .ui(ui, &mut self.settings.graph, current.as_deref())
         {
-            self.settings.view_mode = self.text_mode;
+            self.reveal.push(Reveal::Text);
             let ctx = ui.ctx().clone();
             self.apply_nav_action(NavAction::Open(path), &ctx);
         }
@@ -1285,7 +1250,7 @@ impl NtApp {
                 ("go to note", SHORTCUT_QUICK_OPEN),
                 ("graph", SHORTCUT_GRAPH),
                 ("new note", SHORTCUT_NEW),
-                ("sidebar", SHORTCUT_SIDEBAR),
+                ("files", SHORTCUT_FILES),
             ]
             .map(|(label, shortcut)| format!("{}  {label}", ctx.format_shortcut(&shortcut)))
             .join("     ");
@@ -1558,6 +1523,112 @@ impl NtApp {
     }
 }
 
+impl NtApp {
+    /// Each popped-out pane in a native window of its own; closing it docks the pane back.
+    fn popout_windows(&mut self, ctx: &egui::Context) {
+        let detached = self.settings.dock.detached().to_vec();
+        self.popouts
+            .retain(|p| detached.iter().any(|d| d.pane == p.pane));
+        for d in detached {
+            // Open with the saved geometry, then leave the window where the user puts it.
+            let initial = match self.popouts.iter().find(|p| p.pane == d.pane) {
+                Some(p) => *p,
+                None => {
+                    self.popouts.push(d);
+                    d
+                }
+            };
+            let pane = d.pane;
+            let mut builder = egui::ViewportBuilder::default()
+                .with_title(format!("{} - Neural-Thinker", pane.title()))
+                .with_inner_size(initial.size)
+                .with_min_inner_size([220.0, 140.0]);
+            if let Some(pos) = initial.pos {
+                builder = builder.with_position(pos);
+            }
+            let mut redock = false;
+            let mut geometry = None;
+            ctx.show_viewport_immediate(pane.viewport_id(), builder, |ui, class| {
+                let (close, outer, inner) = ui.input(|i| {
+                    let v = i.viewport();
+                    (v.close_requested(), v.outer_rect, v.inner_rect)
+                });
+                redock |= close;
+                if class != egui::ViewportClass::EmbeddedWindow {
+                    geometry = inner.map(|r| (outer.map(|o| o.min), r.size()));
+                }
+                let bar = egui::Frame::new()
+                    .fill(theme::surface(ui.visuals()))
+                    .inner_margin(egui::Margin::symmetric(10, 4));
+                egui::Panel::top(egui::Id::new(("nt_popout_bar", pane)))
+                    .frame(bar)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(pane.title());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    redock |= ui
+                                        .button("Dock")
+                                        .on_hover_text("Back into the main window")
+                                        .clicked();
+                                },
+                            );
+                        });
+                    });
+                let fill = self.pane_fill(ui, pane);
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(fill))
+                    .show(ui, |ui| self.pane_ui(ui, pane));
+            });
+            if let Some((pos, size)) = geometry {
+                self.settings.dock.set_detached_geometry(pane, pos, size);
+            }
+            if redock {
+                self.settings.dock.redock(pane);
+            }
+        }
+    }
+}
+
+impl PaneHost for NtApp {
+    fn pane_ui(&mut self, ui: &mut egui::Ui, pane: Pane) {
+        let margin = match pane {
+            Pane::Editor | Pane::Preview => egui::Margin {
+                left: 18,
+                right: 14,
+                top: 4,
+                bottom: 8,
+            },
+            Pane::Graph => egui::Margin::same(4),
+            Pane::Files | Pane::Outline | Pane::Backlinks => egui::Margin {
+                left: 12,
+                right: 10,
+                top: 2,
+                bottom: 6,
+            },
+        };
+        egui::Frame::new().inner_margin(margin).show(ui, |ui| {
+            ui.set_min_size(ui.available_size());
+            match pane {
+                Pane::Files => self.files_tab(ui),
+                Pane::Editor => self.editor(ui),
+                Pane::Preview => self.preview(ui),
+                Pane::Graph => self.graph(ui),
+                Pane::Outline => self.outline_tab(ui),
+                Pane::Backlinks => self.backlinks_tab(ui),
+            }
+        });
+    }
+
+    fn pane_fill(&self, ui: &egui::Ui, pane: Pane) -> egui::Color32 {
+        match pane {
+            Pane::Graph => theme::graph_colors(ui).background,
+            _ => ui.visuals().panel_fill,
+        }
+    }
+}
+
 impl eframe::App for NtApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -1575,19 +1646,9 @@ impl eframe::App for NtApp {
             self.refresh_tree();
         }
 
-        if self.settings.view_mode != ViewMode::Graph {
-            self.text_mode = self.settings.view_mode;
-        }
-
         let bar = egui::Frame::new()
             .fill(theme::surface(ui.visuals()))
             .inner_margin(egui::Margin::symmetric(10, 4));
-        let page_fill = ui.visuals().panel_fill;
-        let page = |x: i8, y: i8| {
-            egui::Frame::new()
-                .fill(page_fill)
-                .inner_margin(egui::Margin::symmetric(x, y))
-        };
 
         egui::Panel::top("menu")
             .frame(bar)
@@ -1597,49 +1658,26 @@ impl eframe::App for NtApp {
                 .frame(bar)
                 .show(ui, |ui| self.status_bar(ui));
         }
-        // The sidebar slides in and out.
-        let mut sidebar_visible = self.settings.sidebar_visible;
-        egui::Panel::left("sidebar")
-            .frame(bar.inner_margin(egui::Margin::symmetric(10, 6)))
-            .resizable(true)
-            .default_size(250.0)
-            .min_size(160.0)
-            .show_collapsible(ui, &mut sidebar_visible, |ui| self.sidebar(ui));
-        self.settings.sidebar_visible = sidebar_visible;
         if self.show_welcome() {
+            let page = egui::Frame::new()
+                .fill(ui.visuals().panel_fill)
+                .inner_margin(egui::Margin::symmetric(24, 16));
             egui::CentralPanel::default()
-                .frame(page(24, 16))
+                .frame(page)
                 .show(ui, |ui| self.welcome(ui));
         } else {
-            match self.settings.view_mode {
-                ViewMode::Edit => {
-                    egui::CentralPanel::default()
-                        .frame(page(28, 16))
-                        .show(ui, |ui| self.editor(ui));
-                }
-                ViewMode::Preview => {
-                    egui::CentralPanel::default()
-                        .frame(page(28, 16))
-                        .show(ui, |ui| self.preview(ui));
-                }
-                ViewMode::Split => {
-                    let half = ui.available_width() / 2.0;
-                    egui::Panel::right("preview")
-                        .frame(page(24, 16))
-                        .resizable(true)
-                        .default_size(half)
-                        .show(ui, |ui| self.preview(ui));
-                    egui::CentralPanel::default()
-                        .frame(page(28, 16))
-                        .show(ui, |ui| self.editor(ui));
-                }
-                ViewMode::Graph => {
-                    egui::CentralPanel::default()
-                        .frame(page(12, 8).fill(theme::graph_colors(ui).background))
-                        .show(ui, |ui| self.graph(ui));
-                }
-            }
+            // The panes sit on the bar color, so the gaps between them read as gutters.
+            let gutter = egui::Frame::new()
+                .fill(theme::surface(ui.visuals()))
+                .inner_margin(egui::Margin::symmetric(6, 4));
+            egui::CentralPanel::default().frame(gutter).show(ui, |ui| {
+                let mut dock = std::mem::take(&mut self.settings.dock);
+                dock.ui(ui, self);
+                self.settings.dock = dock;
+            });
         }
+        self.popout_windows(&ctx);
+        self.apply_reveal();
         self.quick_add_popup(&ctx);
         self.search_palette(&ctx);
 

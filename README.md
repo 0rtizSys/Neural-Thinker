@@ -32,16 +32,24 @@ NT ships with a minimal baseline and is meant to be extended by the user:
 Phases 1 (basic editor), 2 (navigation and layouts) and 3 (quick add and graph prototype) are
 implemented, and phase 4 adds custom CSS themes:
 
-- Markdown editor with a live rendered preview (editor only, split, or preview only).
+- Markdown editor with a live rendered preview.
 - New, Open, Save and Save As, with unsaved-change prompts on New, Open and exit.
 - Root folder selection, persisted across runs.
-- Sidebar with two tabs:
+- **Tiling layout**: the window is split into panes (Files, Editor, Preview, Graph, Outline,
+  Backlinks) that sit side by side or stacked, never overlapping.
+  - Drag the gap between two panes to resize them: the growing pane's border lights up and its
+    neighbour gives way, on a lightly damped spring. Double-click a gap to share it evenly.
+  - Drag a pane's title bar onto another pane to dock it on that side (or onto its centre to
+    swap them), or to an edge of the window to give it a full-length strip.
+  - Each pane can be hidden (its place is remembered) or popped out into a native window of its
+    own; closing that window docks it back. The layout persists across runs.
   - **Files**: tree of the root folder's folders and Markdown notes, with a filter box,
     "+ Note" and "+ Folder" buttons, and a right-click menu to create, rename and delete
     (only empty folders can be deleted). The tree refreshes when the window regains focus.
-  - **Outline**: headings of the open note; clicking one moves the editor to it.
-- Layout presets in the View menu: Writer, Split, Reader, Focus and Graph; sidebar and status
-  bar toggles; light, dark or system theme.
+  - **Outline** and **Backlinks** have their own panes, stacked in a column by default:
+    headings of the open note, and the notes linking to it.
+- Layout presets in the View menu: Writer, Split, Reader, Focus and Graph, plus a toggle for
+  every pane; status bar toggle; light, dark or system theme.
 - **Quick add** (`Ctrl+Space`): a one-line capture popup. `Enter` saves the text as a new note in
   the root folder's `Inbox/` folder (created on demand, never overwriting); `Shift+Enter` also
   opens it; `Esc` closes. `[[links]]` typed there become graph edges.
@@ -53,8 +61,8 @@ implemented, and phase 4 adds custom CSS themes:
     the third axis, optional slow rotation. Far nodes fade.
   - The force-directed layout stops simulating once it settles, so an idle graph does not use
     the CPU or GPU. Repulsion is O(n²), suitable for vaults of a few hundred notes.
-- Minimal default theme with one accent color and short (~0.15 s) transitions: the sidebar
-  slides, popups fade, status messages fade out.
+- Minimal default theme with one accent color and short (~0.15 s) transitions: panes glide into
+  place, popups fade, status messages fade out.
 
 The UI uses [egui](https://github.com/emilk/egui) through `eframe` with the OpenGL (`glow`) renderer. Markdown is rendered with `egui_commonmark`.
 
@@ -98,7 +106,7 @@ cargo run --release
 ```
 
 Keyboard shortcuts: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as,
-`Ctrl+B` toggle sidebar, `Ctrl+Space` quick add, `Ctrl+G` graph view,
+`Ctrl+B` toggle the Files pane, `Ctrl+Space` quick add, `Ctrl+G` toggle the Graph pane,
 `Ctrl +` / `Ctrl -` / `Ctrl 0` zoom.
 
 The first build enables the repository's git hooks (`core.hooksPath = .githooks`) unless a
