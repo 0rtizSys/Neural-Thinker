@@ -2,9 +2,10 @@
 
 use eframe::egui::{self};
 
-use super::{NtApp, SHORTCUT_FILES, SHORTCUT_GRAPH};
 use crate::dock::{Dock, Pane, PaneHost, Preset};
 use crate::theme;
+
+use super::{NtApp, SHORTCUT_FILES, SHORTCUT_GRAPH};
 
 impl NtApp {
     /// The View menu's layout section: presets and which panes are shown.

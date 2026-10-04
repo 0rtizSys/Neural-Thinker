@@ -2,8 +2,9 @@
 
 use eframe::egui::{self, Key};
 
-use super::{LICENSE_NOTICE, LICENSE_TEXT, NtApp, REQUIRED_NOTICE};
 use crate::widgets;
+
+use super::{LICENSE_NOTICE, LICENSE_TEXT, NtApp, REQUIRED_NOTICE};
 
 impl NtApp {
     pub(super) fn confirm_dialog(&mut self, ctx: &egui::Context) {

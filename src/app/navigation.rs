@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self};
 use egui::collapsing_header::CollapsingState;
 
-use super::{Create, NavAction, NtApp, Pending, Rename};
 use crate::services::VaultEvent;
 use crate::vault::{self, Entry, EntryKind};
 use crate::widgets;
 use crate::widgets::Icon;
+
+use super::{Create, NavAction, NtApp, Pending, Rename};
 
 impl NtApp {
     pub(super) fn refresh_tree(&mut self) {
