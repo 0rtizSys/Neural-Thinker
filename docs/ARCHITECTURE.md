@@ -90,6 +90,7 @@ The Hyprland-style tiling dock that places panes in the main window.
 | `outline.rs` | Heading outline of a document |
 | `quick_add.rs` | Creating quick add notes in the inbox |
 | `widgets.rs` | Shared widgets and line icons |
+| `win_focus.rs` | Windows only: hands the keyboard focus back to the active window when Windows leaves it with none (error sound on every key, no text cursor) |
 
 ### Services seam
 

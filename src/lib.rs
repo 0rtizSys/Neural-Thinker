@@ -29,6 +29,7 @@ mod theme;
 mod theme_css;
 mod vault;
 mod widgets;
+mod win_focus;
 
 /// Re-exported so service crates build against the same egui version.
 pub use eframe::egui;
