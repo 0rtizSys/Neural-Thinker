@@ -147,6 +147,24 @@ Anything you leave out keeps the built-in look, so a theme can be a single line.
 | `--graph-highlight` | The open note, the hovered node and its neighbours. Defaults to `--accent` |
 | `--graph-label` | Note names next to nodes. Defaults to `--text` |
 
+### Editor and code blocks
+
+The editor colors Markdown as you type, and fenced code blocks that name their language
+(```` ```python ````, ```` ```cpp ````...) are colored in the editor and the preview.
+A block without a language stays plain.
+
+| Variable | What it paints |
+|---|---|
+| `--syntax-heading` | Heading text in the editor. Defaults to `--accent` |
+| `--syntax-marker` | Markdown symbols: `#`, `**`, list bullets, task boxes, fence lines |
+| `--syntax-code` | Inline `code` in the editor |
+| `--syntax-keyword` | Keywords (`def`, `if`, `return`...) and the language name on a fence |
+| `--syntax-type` | Types, class names and keys in JSON/YAML/TOML |
+| `--syntax-function` | Function and macro calls |
+| `--syntax-string` | Strings |
+| `--syntax-number` | Numbers |
+| `--syntax-comment` | Comments |
+
 ### Fonts and text sizes
 
 | Variable | What it sets |

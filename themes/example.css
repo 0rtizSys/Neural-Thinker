@@ -53,6 +53,17 @@
     --graph-edge: rgb(168 156 142 / 22%);
     --graph-highlight: var(--ember);
     --graph-label: #e6ddd2;
+
+    /* Editor Markdown and code blocks (```python, ```cpp...). */
+    --syntax-heading: var(--ember);
+    --syntax-marker: #7d7064;
+    --syntax-code: #f0bd84;
+    --syntax-keyword: #e07a5f;
+    --syntax-type: #8fbcbb;
+    --syntax-function: #e8c07d;
+    --syntax-string: #a3be8c;
+    --syntax-number: #d08770;
+    --syntax-comment: #7d7064;
 }
 
 /* Light mode. @media (prefers-color-scheme: light) { :root { ... } } works too. */
@@ -71,4 +82,14 @@
     --graph-node: #6f6458;
     --graph-edge: hsl(30 15% 40% / 25%);
     --graph-highlight: var(--ember-deep);
+
+    --syntax-heading: var(--ember-deep);
+    --syntax-marker: #a3978a;
+    --syntax-code: #9a4f17;
+    --syntax-keyword: #b23a1e;
+    --syntax-type: #2f6f73;
+    --syntax-function: #8a5a00;
+    --syntax-string: #4f7a28;
+    --syntax-number: #a8521c;
+    --syntax-comment: #9a8f84;
 }

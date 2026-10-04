@@ -91,6 +91,27 @@ pub const PROPERTIES: &[(&str, Kind, &str)] = &[
         Kind::Color,
         "Node labels (default: --text)",
     ),
+    (
+        "--syntax-heading",
+        Kind::Color,
+        "Editor: heading text (default: --accent)",
+    ),
+    (
+        "--syntax-marker",
+        Kind::Color,
+        "Editor: Markdown symbols like #, **, - and fences",
+    ),
+    ("--syntax-code", Kind::Color, "Editor: inline `code`"),
+    ("--syntax-keyword", Kind::Color, "Code blocks: keywords"),
+    ("--syntax-type", Kind::Color, "Code blocks: types and keys"),
+    (
+        "--syntax-function",
+        Kind::Color,
+        "Code blocks: function calls",
+    ),
+    ("--syntax-string", Kind::Color, "Code blocks: strings"),
+    ("--syntax-number", Kind::Color, "Code blocks: numbers"),
+    ("--syntax-comment", Kind::Color, "Code blocks: comments"),
     ("--font-text", Kind::Font, "Interface and preview font"),
     ("--font-mono", Kind::Font, "Editor and code font"),
     ("--font-size", Kind::Length, "Body text size"),
@@ -576,6 +597,7 @@ fn set_property(
 ) -> Result<(), String> {
     let p = &mut mode.palette;
     let g = &mut mode.graph;
+    let x = &mut mode.syntax;
     let m = &mut mode.metrics;
     match kind {
         Kind::Color => {
@@ -598,6 +620,15 @@ fn set_property(
                 "--graph-edge" => g.edge = Some(c),
                 "--graph-highlight" => g.highlight = Some(c),
                 "--graph-label" => g.label = Some(c),
+                "--syntax-heading" => x.heading = Some(c),
+                "--syntax-marker" => x.marker = Some(c),
+                "--syntax-code" => x.code = Some(c),
+                "--syntax-keyword" => x.keyword = Some(c),
+                "--syntax-type" => x.r#type = Some(c),
+                "--syntax-function" => x.function = Some(c),
+                "--syntax-string" => x.string = Some(c),
+                "--syntax-number" => x.number = Some(c),
+                "--syntax-comment" => x.comment = Some(c),
                 _ => unreachable!("{name} is listed as a color"),
             }
         }

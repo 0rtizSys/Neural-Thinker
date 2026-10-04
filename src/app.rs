@@ -8,6 +8,7 @@ use egui::text::{CCursor, CCursorRange};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
+use crate::advanced::Advanced;
 use crate::custom_theme::CustomThemes;
 use crate::dock::{Dock, Pane, PaneHost, Preset};
 use crate::document::{DEFAULT_EXTENSION, Document};
@@ -20,7 +21,7 @@ use crate::search::NoteIndex;
 use crate::services::{Services, VaultEvent};
 use crate::vault::{self, Entry, EntryKind};
 use crate::widgets::Icon;
-use crate::{outline, quick_add, theme, widgets};
+use crate::{markdown, outline, quick_add, smart_edit, theme, widgets};
 
 const SETTINGS_KEY: &str = "nt_settings";
 
@@ -62,6 +63,8 @@ struct Settings {
     graph: GraphSettings,
     /// File name of the CSS theme in the themes folder; `None` for the built-in look.
     custom_theme: Option<String>,
+    /// Editor behaviors that can be switched off (View > Advanced options).
+    advanced: Advanced,
 }
 
 impl Default for Settings {
@@ -74,6 +77,7 @@ impl Default for Settings {
             show_all_files: false,
             graph: GraphSettings::default(),
             custom_theme: None,
+            advanced: Advanced::default(),
         }
     }
 }
@@ -163,6 +167,11 @@ pub struct NtApp {
     open_at: Option<(PathBuf, usize)>,
     themes: CustomThemes,
     quick_css: QuickCss,
+    show_advanced: bool,
+    /// Colored layout of the editor text, kept while the text is unchanged.
+    highlighter: markdown::Highlighter,
+    /// Scroll the editor to its cursor on the next frame (after a smart edit).
+    scroll_to_cursor: bool,
 }
 
 /// A pane the user needs to see after an action.
@@ -226,6 +235,9 @@ impl NtApp {
             open_at: None,
             themes,
             quick_css: QuickCss::default(),
+            show_advanced: false,
+            highlighter: markdown::Highlighter::default(),
+            scroll_to_cursor: false,
         };
         if app.settings.custom_theme.is_some() {
             app.status = theme_status.unwrap_or_default();
@@ -389,13 +401,23 @@ impl NtApp {
         }
     }
 
-    /// Runs `action` now, or asks first if it would discard unsaved changes.
+    /// Runs `action` now, or asks first if it would discard unsaved changes
+    /// (with autosave on, notes that have a file are saved instead of asking).
     fn request(&mut self, action: Pending, ctx: &egui::Context) {
-        if self.doc.is_dirty() {
+        if self.doc.is_dirty() && !self.autosave() {
             self.pending = Some(action);
         } else {
             self.perform(action, ctx);
         }
+    }
+
+    /// With autosave on, saves the open note if it already has a file. Returns
+    /// true when it was saved; untitled notes and failed saves still need the prompt.
+    fn autosave(&mut self) -> bool {
+        if !self.settings.advanced.autosave || self.doc.path().is_none() {
+            return false;
+        }
+        self.save()
     }
 
     fn perform(&mut self, action: Pending, ctx: &egui::Context) {
@@ -676,7 +698,10 @@ impl NtApp {
     }
 
     fn handle_close_request(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.doc.is_dirty()
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_close
+            && self.doc.is_dirty()
+            && !self.autosave()
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.pending = Some(Pending::Exit);
@@ -776,6 +801,11 @@ impl NtApp {
                 });
                 ui.separator();
                 ui.weak("Zoom: Ctrl + / Ctrl - / Ctrl 0");
+            });
+            ui.menu_button("Settings", |ui| {
+                if ui.button("Advanced options...").clicked() {
+                    self.show_advanced = true;
+                }
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("Services...").clicked() {
@@ -1164,34 +1194,122 @@ impl NtApp {
         } else {
             None
         };
+        if focused && self.settings.advanced.smart_indent {
+            self.smart_keys(ui.ctx(), editor_id);
+        }
+        let highlight = self.settings.advanced.syntax_highlighting;
+        let mut highlighter = std::mem::take(&mut self.highlighter);
+        let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+            highlighter.layout(ui, text.as_str(), wrap_width)
+        };
         egui::ScrollArea::vertical()
             .id_salt("editor")
             .auto_shrink(false)
             .show(ui, |ui| {
-                let output = egui::TextEdit::multiline(&mut self.doc.text)
-                    .id(egui::Id::new("nt_editor"))
+                let mut edit = egui::TextEdit::multiline(&mut self.doc.text)
+                    .id(editor_id)
                     .frame(egui::Frame::NONE)
                     .font(egui::TextStyle::Monospace)
                     .hint_text("Start writing Markdown...")
                     .desired_width(f32::INFINITY)
                     .min_size(ui.available_size())
-                    .lock_focus(true)
-                    .show(ui);
-                if let Some(offset) = self.jump_to.take() {
+                    .lock_focus(true);
+                if highlight {
+                    edit = edit.layouter(&mut layouter);
+                }
+                let output = edit.show(ui);
+                // Keep scrolling while a selection is dragged past the edge.
+                widgets::drag_autoscroll(ui, output.response.response.dragged());
+                let jump = self.jump_to.take();
+                if let Some(offset) = jump {
                     let cursor = CCursor::new(offset);
                     let id = output.response.response.id;
                     let mut state = output.state.clone();
                     state.cursor.set_char_range(Some(CCursorRange::one(cursor)));
                     state.store(ui.ctx(), id);
                     ui.memory_mut(|m| m.request_focus(id));
+                }
+                let follow = std::mem::take(&mut self.scroll_to_cursor);
+                let target = jump.map(CCursor::new).or_else(|| {
+                    follow
+                        .then(|| output.cursor_range.map(|r| r.primary))
+                        .flatten()
+                });
+                if let Some(cursor) = target {
                     let rect = output
                         .galley
                         .pos_from_cursor(cursor)
                         .translate(output.galley_pos.to_vec2());
-                    ui.scroll_to_rect(rect, Some(egui::Align::TOP));
+                    let align = jump.is_some().then_some(egui::Align::TOP);
+                    ui.scroll_to_rect(rect.expand(4.0), align);
                 }
                 self.complete_links(ui, &output, focused, nav);
             });
+        self.highlighter = highlighter;
+    }
+
+    /// Smart indentation: takes Enter, Tab, Backspace and closing brackets from the
+    /// input before the editor sees them (see `smart_edit`).
+    fn smart_keys(&mut self, ctx: &egui::Context, id: egui::Id) {
+        let Some(mut state) = egui::TextEdit::load_state(ctx, id) else {
+            return;
+        };
+        let Some(range) = state.cursor.char_range() else {
+            return;
+        };
+        let mut sel = (range.secondary.index.0, range.primary.index.0);
+        let text = &mut self.doc.text;
+        let mut changed = false;
+        ctx.input_mut(|input| {
+            let mut handled = Vec::new();
+            for (n, event) in input.events.iter().enumerate() {
+                let result = match event {
+                    egui::Event::Key {
+                        key: Key::Enter,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if !modifiers.command && !modifiers.alt => Some(smart_edit::enter(text, sel)),
+                    egui::Event::Key {
+                        key: Key::Tab,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if !modifiers.command && !modifiers.alt => {
+                        smart_edit::tab(text, sel, modifiers.shift)
+                    }
+                    egui::Event::Key {
+                        key: Key::Backspace,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if modifiers.is_none() => smart_edit::backspace(text, sel),
+                    egui::Event::Text(typed) => smart_edit::closer(text, sel, typed),
+                    // Releases and pointer movement do not touch the text.
+                    egui::Event::Key { pressed: false, .. }
+                    | egui::Event::PointerMoved(_)
+                    | egui::Event::MouseMoved(_) => continue,
+                    _ => None,
+                };
+                // Stop at the first event left to the editor, so later ones apply in order.
+                let Some(new_sel) = result else { break };
+                sel = new_sel;
+                handled.push(n);
+                changed = true;
+            }
+            for n in handled.into_iter().rev() {
+                input.events.remove(n);
+            }
+        });
+        if changed {
+            state.cursor.set_char_range(Some(CCursorRange::two(
+                CCursor::new(sel.0),
+                CCursor::new(sel.1),
+            )));
+            state.store(ctx, id);
+            self.scroll_to_cursor = true;
+            ctx.request_repaint();
+        }
     }
 
     /// Suggests notes while a `[[link` is being typed, and inserts the chosen one.
@@ -1241,11 +1359,31 @@ impl NtApp {
     }
 
     fn preview(&mut self, ui: &mut egui::Ui) {
+        let highlight = self.settings.advanced.syntax_highlighting;
         egui::ScrollArea::vertical()
             .id_salt("preview")
             .auto_shrink(false)
             .show(ui, |ui| {
-                CommonMarkViewer::new().show(ui, &mut self.md_cache, &self.doc.text);
+                let view = ui.clip_rect();
+                for (n, segment) in markdown::segments(&self.doc.text).into_iter().enumerate() {
+                    ui.push_id(n, |ui| match segment {
+                        markdown::Segment::Markdown(text) => {
+                            CommonMarkViewer::new().show(ui, &mut self.md_cache, text);
+                        }
+                        markdown::Segment::Code { info, code } => {
+                            code_block(ui, info, code, highlight);
+                        }
+                    });
+                }
+                // Text selection drags past the edge keep scrolling, as in the editor.
+                let selecting = ui.input(|i| {
+                    i.pointer.primary_down()
+                        && i.pointer.is_decidedly_dragging()
+                        && i.pointer
+                            .press_origin()
+                            .is_some_and(|p| view.shrink2(egui::vec2(12.0, 0.0)).contains(p))
+                });
+                widgets::drag_autoscroll(ui, selecting);
             });
     }
 
@@ -1815,6 +1953,7 @@ impl eframe::App for NtApp {
         }
         self.services_window(&ctx);
         self.about_window(&ctx);
+        self.settings.advanced.window(&ctx, &mut self.show_advanced);
         if let Some(quick_css::Action::Open(path)) =
             self.quick_css
                 .show(&ctx, &mut self.themes, &mut self.settings.custom_theme)
@@ -1830,6 +1969,45 @@ impl eframe::App for NtApp {
 }
 
 /// Draws `entries` as a collapsible tree, collecting what the user clicked into `actions`.
+/// A fenced code block in the preview: colored for its language (plain when it has
+/// none), with the language name and a copy button.
+fn code_block(ui: &mut egui::Ui, info: &str, code: &str, highlight: bool) {
+    let lang = crate::highlight::lang(info).filter(|_| highlight);
+    let style = markdown::Style::from_ui(ui);
+    let mut job = egui::text::LayoutJob::default();
+    markdown::append_code(&mut job, code, lang, &style);
+    ui.add_space(4.0);
+    egui::Frame::new()
+        .fill(ui.visuals().code_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(ui.visuals().widgets.noninteractive.corner_radius)
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                let name = info.split_whitespace().next().unwrap_or("");
+                ui.label(egui::RichText::new(name).small().weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button("Copy")
+                        .on_hover_text("Copy the code")
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(code.to_owned());
+                    }
+                });
+            });
+            egui::ScrollArea::horizontal()
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.add(egui::Label::new(job).extend());
+                    // Room for the floating scroll bar under the last line.
+                    ui.add_space(6.0);
+                });
+        });
+    ui.add_space(4.0);
+}
+
 fn tree_ui(
     ui: &mut egui::Ui,
     entries: &[Entry],
