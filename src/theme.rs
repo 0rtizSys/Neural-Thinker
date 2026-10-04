@@ -107,11 +107,11 @@ impl Default for Metrics {
             font_button: 14.0,
             font_heading: 20.0,
             font_mono: 13.5,
-            item_spacing: egui::vec2(8.0, 6.0),
-            button_padding: egui::vec2(8.0, 3.0),
+            item_spacing: egui::vec2(8.0, 7.0),
+            button_padding: egui::vec2(11.0, 4.0),
             window_margin: 16.0,
             indent: 16.0,
-            radius: 6.0,
+            radius: 7.0,
             window_radius: 10.0,
             animation_time: ANIMATION_TIME,
         }
@@ -253,7 +253,7 @@ fn apply_metrics(style: &mut egui::Style, m: &Metrics) {
     spacing.button_padding = m.button_padding;
     spacing.window_margin = Margin::same(m.window_margin.round() as i8);
     spacing.menu_margin = Margin::same(6);
-    spacing.interact_size.y = (m.font_button + 8.0).max(22.0);
+    spacing.interact_size.y = (m.font_button + 2.0 * m.button_padding.y + 4.0).max(22.0);
     spacing.indent = m.indent;
     spacing.scroll = egui::style::ScrollStyle::floating();
 }
@@ -309,6 +309,12 @@ fn visuals(p: &Palette, m: &Metrics, mut v: egui::Visuals) -> egui::Visuals {
         state.corner_radius = radius;
         state.expansion = 0.0;
     }
+    // A hairline edge and a faint lift on hover/press make buttons read as buttons
+    // without heavy borders; both come from the palette.
+    w.inactive.bg_stroke = Stroke::new(1.0, p.line);
+    w.hovered.bg_stroke = Stroke::new(1.0, p.line.lerp_to_gamma(p.text, 0.18));
+    w.active.bg_stroke = Stroke::new(1.0, p.accent.gamma_multiply(0.7));
+    w.active.expansion = -0.5;
     w.inactive.fg_stroke = Stroke::new(1.0, p.text.gamma_multiply(0.85));
     w.hovered.fg_stroke = Stroke::new(1.5, p.text);
     w.active.fg_stroke = Stroke::new(1.5, p.text);
