@@ -1,7 +1,7 @@
 use eframe::egui::{Pos2, Rect, pos2, vec2};
 
 use super::anim::Spring;
-use super::geometry::{Drop, layout, resized_shares};
+use super::geometry::{Drop, corners, layout, resized_shares};
 use super::tree::{pane_list, same_shape};
 use super::*;
 
@@ -137,6 +137,25 @@ fn layout_fills_the_rect_and_resizing_keeps_minimums() {
     let room = first.end - first.start - GAP;
     assert!((a / (a + b) * room - MIN_SIZE).abs() < 0.01);
     assert!(((a + b) - 0.52).abs() < 1e-5);
+}
+
+#[test]
+fn corners_are_found_where_gaps_meet() {
+    let rect = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 600.0));
+    let (mut panes, mut splitters) = (Vec::new(), Vec::new());
+    layout(
+        &Preset::Split.tree(),
+        rect,
+        &mut Vec::new(),
+        &mut panes,
+        &mut splitters,
+    );
+    let found = corners(&splitters);
+    // Only the gap left of the Outline/Backlinks column touches that column's gap.
+    assert_eq!(found.len(), 1);
+    let (row, col) = (&splitters[found[0].0], &splitters[found[0].1]);
+    assert_eq!(row.after, [Pane::Outline, Pane::Backlinks]);
+    assert_eq!(col.before, [Pane::Outline]);
 }
 
 #[test]
