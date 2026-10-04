@@ -24,11 +24,13 @@ impl Default for ThemeSpec {
             dark: ModeSpec {
                 palette: DARK,
                 graph: GraphPalette::default(),
+                syntax: SyntaxPalette::default(),
                 metrics: Metrics::default(),
             },
             light: ModeSpec {
                 palette: LIGHT,
                 graph: GraphPalette::default(),
+                syntax: SyntaxPalette::default(),
                 metrics: Metrics::default(),
             },
         }
@@ -50,6 +52,7 @@ impl ThemeSpec {
 pub struct ModeSpec {
     pub palette: Palette,
     pub graph: GraphPalette,
+    pub syntax: SyntaxPalette,
     pub metrics: Metrics,
 }
 
@@ -113,6 +116,20 @@ const LIGHT_TAGS: [Color32; TAG_SLOTS] = [
     Color32::from_rgb(176, 63, 163),
     Color32::from_rgb(138, 132, 16),
 ];
+
+/// Editor and code block colors; each falls back to the mode's default when unset.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SyntaxPalette {
+    pub heading: Option<Color32>,
+    pub marker: Option<Color32>,
+    pub code: Option<Color32>,
+    pub keyword: Option<Color32>,
+    pub r#type: Option<Color32>,
+    pub function: Option<Color32>,
+    pub string: Option<Color32>,
+    pub number: Option<Color32>,
+    pub comment: Option<Color32>,
+}
 
 /// Sizes in points and the animation time in seconds.
 #[derive(Clone, Debug, PartialEq)]
@@ -248,6 +265,82 @@ pub fn graph_colors(ui: &egui::Ui) -> GraphColors {
     }
 }
 
+/// The colors the editor and code blocks paint with.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SyntaxColors {
+    /// Heading text.
+    pub heading: Color32,
+    /// Markdown punctuation: `#`, `**`, list bullets, fence lines.
+    pub marker: Color32,
+    /// Inline `code`.
+    pub code: Color32,
+    pub keyword: Color32,
+    pub r#type: Color32,
+    pub function: Color32,
+    pub string: Color32,
+    pub number: Color32,
+    pub comment: Color32,
+}
+
+impl SyntaxColors {
+    /// The built-in colors for dark or light mode.
+    pub fn fallback(dark: bool) -> Self {
+        if dark {
+            Self {
+                heading: DARK.accent,
+                marker: Color32::from_rgb(112, 116, 132),
+                code: Color32::from_rgb(232, 160, 128),
+                keyword: Color32::from_rgb(186, 160, 255),
+                r#type: Color32::from_rgb(110, 196, 206),
+                function: Color32::from_rgb(130, 172, 255),
+                string: Color32::from_rgb(156, 200, 126),
+                number: Color32::from_rgb(232, 178, 110),
+                comment: Color32::from_rgb(112, 118, 132),
+            }
+        } else {
+            Self {
+                heading: LIGHT.accent,
+                marker: Color32::from_rgb(150, 152, 166),
+                code: Color32::from_rgb(176, 72, 48),
+                keyword: Color32::from_rgb(132, 64, 200),
+                r#type: Color32::from_rgb(0, 118, 140),
+                function: Color32::from_rgb(36, 92, 204),
+                string: Color32::from_rgb(40, 128, 56),
+                number: Color32::from_rgb(178, 92, 16),
+                comment: Color32::from_rgb(132, 136, 148),
+            }
+        }
+    }
+}
+
+fn syntax_palette_id() -> egui::Id {
+    egui::Id::new("nt_syntax_palette")
+}
+
+/// Editor and code colors for the current mode: the theme's, or the built-in ones.
+/// The heading color follows the accent unless the theme sets it.
+pub fn syntax_colors(ui: &egui::Ui) -> SyntaxColors {
+    let visuals = ui.visuals();
+    let dark = visuals.dark_mode;
+    let set: SyntaxPalette = ui
+        .ctx()
+        .data(|d| d.get_temp::<[SyntaxPalette; 2]>(syntax_palette_id()))
+        .map(|[d, l]| if dark { d } else { l })
+        .unwrap_or_default();
+    let base = SyntaxColors::fallback(dark);
+    SyntaxColors {
+        heading: set.heading.unwrap_or(visuals.selection.stroke.color),
+        marker: set.marker.unwrap_or(base.marker),
+        code: set.code.unwrap_or(base.code),
+        keyword: set.keyword.unwrap_or(base.keyword),
+        r#type: set.r#type.unwrap_or(base.r#type),
+        function: set.function.unwrap_or(base.function),
+        string: set.string.unwrap_or(base.string),
+        number: set.number.unwrap_or(base.number),
+        comment: set.comment.unwrap_or(base.comment),
+    }
+}
+
 /// Installs `spec` for both light and dark mode.
 pub fn apply(ctx: &egui::Context, spec: &ThemeSpec) {
     for (theme, mode, base) in [
@@ -261,7 +354,11 @@ pub fn apply(ctx: &egui::Context, spec: &ThemeSpec) {
         d.insert_temp(
             graph_palette_id(),
             [spec.dark.graph.clone(), spec.light.graph.clone()],
-        )
+        );
+        d.insert_temp(
+            syntax_palette_id(),
+            [spec.dark.syntax.clone(), spec.light.syntax.clone()],
+        );
     });
 }
 

@@ -117,6 +117,15 @@ Named colors other than the three above are not supported.
 | `--graph-tag-7` | color | Automatic tag color 7 |
 | `--graph-tag-8` | color | Automatic tag color 8 |
 | `--tag-<name>` | color | Color of the notes whose first tag is `#<name>` (see below) |
+| `--syntax-heading` | color | Editor: heading text (default: `--accent`) |
+| `--syntax-marker` | color | Editor: Markdown symbols like `#`, `**`, `-` and fences |
+| `--syntax-code` | color | Editor: inline `code` |
+| `--syntax-keyword` | color | Code blocks: keywords |
+| `--syntax-type` | color | Code blocks: types and keys |
+| `--syntax-function` | color | Code blocks: function calls |
+| `--syntax-string` | color | Code blocks: strings |
+| `--syntax-number` | color | Code blocks: numbers |
+| `--syntax-comment` | color | Code blocks: comments |
 | `--font-text` | font | Interface and preview font |
 | `--font-mono` | font | Editor and code font |
 | `--font-size` | length | Body text size |

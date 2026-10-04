@@ -260,3 +260,31 @@ pub fn tree_row(ui: &mut Ui, kind: RowKind, name: &str, selected: bool) -> Respo
     ui.painter().galley(text_pos, galley, text_color);
     response
 }
+
+/// While text is being selected by dragging past the top or bottom of a scroll area,
+/// scrolls it toward the pointer, faster the further out the pointer is. Call inside
+/// the scroll area's contents with whether a selection drag is in progress.
+pub fn drag_autoscroll(ui: &Ui, selecting: bool) {
+    if !selecting {
+        return;
+    }
+    let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+        return;
+    };
+    let view = ui.clip_rect();
+    // Start a little inside the edge so it also works in a maximized window,
+    // where the pointer cannot leave the screen.
+    let margin = (view.height() * 0.08).clamp(4.0, 24.0);
+    let over = if pointer.y < view.top() + margin {
+        pointer.y - (view.top() + margin)
+    } else if pointer.y > view.bottom() - margin {
+        pointer.y - (view.bottom() - margin)
+    } else {
+        return;
+    };
+    let dt = ui.input(|i| i.stable_dt).min(0.05);
+    // Points per second: gentle near the edge, quick far past it.
+    let speed = (over.abs() * 12.0 + 80.0).min(4000.0) * over.signum();
+    ui.scroll_with_delta(vec2(0.0, -speed * dt));
+    ui.ctx().request_repaint();
+}

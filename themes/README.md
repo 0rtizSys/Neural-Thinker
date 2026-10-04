@@ -175,6 +175,24 @@ A nested tag like `#work/meetings` uses `--tag-work/meetings` if you set it, oth
 parent's `--tag-work`. Tags without a color of their own get one of the eight automatic
 colors, which you can change with `--graph-tag-1` to `--graph-tag-8`.
 
+### Editor and code blocks
+
+The editor colors Markdown as you type, and fenced code blocks that name their language
+(```` ```python ````, ```` ```cpp ````...) are colored in the editor and the preview.
+A block without a language stays plain.
+
+| Variable | What it paints |
+|---|---|
+| `--syntax-heading` | Heading text in the editor. Defaults to `--accent` |
+| `--syntax-marker` | Markdown symbols: `#`, `**`, list bullets, task boxes, fence lines |
+| `--syntax-code` | Inline `code` in the editor |
+| `--syntax-keyword` | Keywords (`def`, `if`, `return`...) and the language name on a fence |
+| `--syntax-type` | Types, class names and keys in JSON/YAML/TOML |
+| `--syntax-function` | Function and macro calls |
+| `--syntax-string` | Strings |
+| `--syntax-number` | Numbers |
+| `--syntax-comment` | Comments |
+
 ### Fonts and text sizes
 
 | Variable | What it sets |

@@ -159,13 +159,23 @@ impl NtApp {
         }
     }
 
-    /// Runs `action` now, or asks first if it would discard unsaved changes.
+    /// Runs `action` now, or asks first if it would discard unsaved changes
+    /// (with autosave on, notes that have a file are saved instead of asking).
     pub(super) fn request(&mut self, action: Pending, ctx: &egui::Context) {
-        if self.doc.is_dirty() {
+        if self.doc.is_dirty() && !self.autosave() {
             self.pending = Some(action);
         } else {
             self.perform(action, ctx);
         }
+    }
+
+    /// With autosave on, saves the open note if it already has a file. Returns
+    /// true when it was saved; untitled notes and failed saves still need the prompt.
+    pub(super) fn autosave(&mut self) -> bool {
+        if !self.settings.advanced.autosave || self.doc.path().is_none() {
+            return false;
+        }
+        self.save()
     }
 
     pub(super) fn perform(&mut self, action: Pending, ctx: &egui::Context) {

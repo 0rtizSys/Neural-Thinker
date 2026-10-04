@@ -4,6 +4,7 @@
 //! own [`services::Services`]; the open-source binary in `main.rs` runs it with
 //! none.
 
+mod advanced;
 mod app;
 mod custom_theme;
 mod dock;
@@ -12,14 +13,17 @@ mod fuzzy;
 mod graph;
 mod graph_layout;
 mod graph_view;
+mod highlight;
 mod link_complete;
 mod links;
+mod markdown;
 mod outline;
 mod palette;
 mod quick_add;
 mod quick_css;
 mod search;
 pub mod services;
+mod smart_edit;
 mod tags;
 mod theme;
 mod theme_css;

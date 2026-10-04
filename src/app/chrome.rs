@@ -49,7 +49,10 @@ impl NtApp {
     }
 
     pub(super) fn handle_close_request(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.doc.is_dirty()
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_close
+            && self.doc.is_dirty()
+            && !self.autosave()
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.pending = Some(Pending::Exit);
@@ -149,6 +152,11 @@ impl NtApp {
                 });
                 ui.separator();
                 ui.weak("Zoom: Ctrl + / Ctrl - / Ctrl 0");
+            });
+            ui.menu_button("Settings", |ui| {
+                if ui.button("Advanced options...").clicked() {
+                    self.show_advanced = true;
+                }
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("Services...").clicked() {
