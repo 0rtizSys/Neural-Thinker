@@ -1,5 +1,5 @@
-//! Markdown structure the editor needs: fenced code blocks, and the colored
-//! layout of the source text (headings, emphasis, links, lists, code).
+//! The colored layout of Markdown source in the editor: headings, emphasis,
+//! links, lists, inline code and fenced code blocks.
 //!
 //! Colors come from the theme (`theme::syntax_colors` and the visuals), so CSS
 //! themes restyle the editor like everything else.
@@ -10,170 +10,9 @@ use std::sync::Arc;
 
 use eframe::egui::{self, Color32, FontId, Stroke, text::LayoutJob, text::TextFormat};
 
+use super::{fences, lines, list_item};
 use crate::highlight::{self, Token};
 use crate::theme::SyntaxColors;
-
-/// A fenced code block: ```` ```lang ```` ... ```` ``` ````. Ranges are byte offsets.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Fence {
-    /// The opening line, without its newline.
-    pub open: Range<usize>,
-    /// Everything between the fence lines, newlines included.
-    pub body: Range<usize>,
-    /// The closing line without its newline; `None` when the block runs to the end.
-    pub close: Option<Range<usize>>,
-    /// The info string after the opening fence (` ```python ` gives `python`).
-    pub info: String,
-    /// The fence characters themselves, e.g. ```` ``` ```` or `~~~~`.
-    pub marker: String,
-}
-
-impl Fence {
-    /// The highlighter for this block's language, if it names one we know.
-    pub fn lang(&self) -> Option<&'static highlight::Lang> {
-        highlight::lang(&self.info)
-    }
-
-    /// The whole block, fence lines included.
-    pub fn span(&self) -> Range<usize> {
-        self.open.start..self.close.as_ref().map_or(self.body.end, |c| c.end)
-    }
-}
-
-/// Lines of `text` as (start, end-without-newline, next-line-start).
-fn lines(text: &str) -> impl Iterator<Item = (usize, usize, usize)> + '_ {
-    let mut at = 0;
-    std::iter::from_fn(move || {
-        if at >= text.len() {
-            return None;
-        }
-        let start = at;
-        let (end, next) = match text[at..].find('\n') {
-            Some(n) => (at + n, at + n + 1),
-            None => (text.len(), text.len()),
-        };
-        at = next;
-        // A Windows line ending: keep the `\r` out of the line.
-        let end = if end > start && text.as_bytes()[end - 1] == b'\r' {
-            end - 1
-        } else {
-            end
-        };
-        Some((start, end, next))
-    })
-}
-
-/// An opening fence line: up to three spaces, then three or more ` or ~.
-/// Returns the marker and the info string.
-fn opening_fence(line: &str) -> Option<(&str, &str)> {
-    let trimmed = line.trim_start_matches(' ');
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-    let ch = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
-    let len = trimmed.find(|c| c != ch).unwrap_or(trimmed.len());
-    if len < 3 {
-        return None;
-    }
-    let info = trimmed[len..].trim();
-    if ch == '`' && info.contains('`') {
-        return None;
-    }
-    Some((&trimmed[..len], info))
-}
-
-fn closes(line: &str, marker: &str) -> bool {
-    let trimmed = line.trim_start_matches(' ');
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-    let ch = marker.chars().next().unwrap_or('`');
-    let len = trimmed.find(|c| c != ch).unwrap_or(trimmed.len());
-    len >= marker.len() && trimmed[len..].trim().is_empty()
-}
-
-/// Every fenced code block in `text`, in order.
-pub fn fences(text: &str) -> Vec<Fence> {
-    let mut out = Vec::new();
-    let mut open: Option<Fence> = None;
-    for (start, end, next) in lines(text) {
-        let line = &text[start..end];
-        match &mut open {
-            None => {
-                if let Some((marker, info)) = opening_fence(line) {
-                    open = Some(Fence {
-                        open: start..end,
-                        body: next..next,
-                        close: None,
-                        info: info.to_owned(),
-                        marker: marker.to_owned(),
-                    });
-                }
-            }
-            Some(fence) => {
-                if closes(line, &fence.marker) {
-                    fence.body.end = start;
-                    fence.close = Some(start..end);
-                    out.extend(open.take());
-                } else {
-                    fence.body.end = next;
-                }
-            }
-        }
-    }
-    if let Some(mut fence) = open {
-        fence.body.end = fence.body.end.max(fence.body.start).min(text.len());
-        fence.body.start = fence.body.start.min(text.len());
-        out.push(fence);
-    }
-    out
-}
-
-/// The fenced block whose body contains byte offset `at`, if any.
-pub fn fence_at(text: &str, at: usize) -> Option<Fence> {
-    fences(text)
-        .into_iter()
-        .find(|f| f.open.end < at && f.body.start <= at && at <= f.body.end)
-}
-
-/// A piece of a note for the preview: Markdown, or a fenced code block.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Segment<'a> {
-    Markdown(&'a str),
-    Code { info: &'a str, code: &'a str },
-}
-
-/// Splits `text` into Markdown and top-level code blocks, so the preview can draw
-/// code with this module's highlighter.
-pub fn segments(text: &str) -> Vec<Segment<'_>> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    for fence in fences(text) {
-        let span = fence.span();
-        if span.start > at {
-            out.push(Segment::Markdown(&text[at..span.start]));
-        }
-        let info_start = text[fence.open.clone()]
-            .find(&fence.info)
-            .map_or(fence.open.end, |n| fence.open.start + n);
-        let code = &text[fence.body.clone()];
-        out.push(Segment::Code {
-            info: &text[info_start..info_start + fence.info.len()],
-            code: code.strip_suffix('\n').unwrap_or(code),
-        });
-        at = span.end;
-        // The newline after the closing fence belongs to the block.
-        if text[at..].starts_with('\n') {
-            at += 1;
-        }
-    }
-    if at < text.len() {
-        out.push(Segment::Markdown(&text[at..]));
-    }
-    out
-}
-
-// ---- Editor coloring ---------------------------------------------------
 
 /// Everything a layout depends on besides the text.
 #[derive(Clone, Debug, PartialEq)]
@@ -241,7 +80,7 @@ fn plain(style: &Style, color: Color32) -> TextFormat {
 }
 
 /// Inline style bits for one byte of a line.
-mod bits {
+pub(super) mod bits {
     pub const CODE: u8 = 1;
     pub const LINK: u8 = 2;
     pub const STRONG: u8 = 4;
@@ -404,66 +243,13 @@ fn is_rule(body: &str) -> bool {
     count >= 3 && body.chars().all(|c| c == ch || c == ' ' || c == '\t')
 }
 
-/// A list item's parts, as byte ranges in its line.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ListItem {
-    /// `-`, `*`, `+`, `1.` or `1)`.
-    pub marker: Range<usize>,
-    /// `[ ]` or `[x]`.
-    pub task: Option<Range<usize>>,
-    pub done: bool,
-    /// Where the item's text starts.
-    pub content: usize,
-}
-
-/// Parses a list item line: indentation, a marker, at least one space, maybe a task box.
-pub fn list_item(line: &str) -> Option<ListItem> {
-    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-    let body = &line[indent..];
-    let marker_len = if body.starts_with(['-', '*', '+']) {
-        1
-    } else {
-        let digits = body.len() - body.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-        if digits == 0 || digits > 9 || !body[digits..].starts_with(['.', ')']) {
-            return None;
-        }
-        digits + 1
-    };
-    let after = &body[marker_len..];
-    if !(after.is_empty() || after.starts_with([' ', '\t'])) {
-        return None;
-    }
-    let marker = indent..indent + marker_len;
-    let mut content = marker.end + (after.len() - after.trim_start_matches([' ', '\t']).len());
-    let rest = &line[content..];
-    let mut task = None;
-    let mut done = false;
-    if rest.len() >= 3
-        && rest.starts_with('[')
-        && rest.as_bytes()[2] == b']'
-        && matches!(rest.as_bytes()[1], b' ' | b'x' | b'X')
-        && (rest.len() == 3 || rest[3..].starts_with(' '))
-    {
-        done = rest.as_bytes()[1] != b' ';
-        task = Some(content..content + 3);
-        content += 3;
-        content += line[content..].len() - line[content..].trim_start_matches(' ').len();
-    }
-    Some(ListItem {
-        marker,
-        task,
-        done,
-        content,
-    })
-}
-
 /// Byte length of the character at `i`.
 fn next_char(line: &str, i: usize) -> usize {
     line[i..].chars().next().map_or(1, char::len_utf8)
 }
 
 /// Marks inline spans of `line[from..]` in `flags`.
-fn inline(line: &str, from: usize, flags: &mut [u8]) {
+pub(super) fn inline(line: &str, from: usize, flags: &mut [u8]) {
     let bytes = line.as_bytes();
     let set = |flags: &mut [u8], r: Range<usize>, bit: u8| {
         for f in &mut flags[r] {
@@ -626,107 +412,5 @@ impl Highlighter {
         self.key = key;
         self.galley = Some(galley.clone());
         galley
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finds_fences() {
-        let text = "intro\n```python\nx = 1\n```\nmid\n~~~~\nplain\n~~~~\n";
-        let f = fences(text);
-        assert_eq!(f.len(), 2);
-        assert_eq!(f[0].info, "python");
-        assert_eq!(&text[f[0].body.clone()], "x = 1\n");
-        assert_eq!(&text[f[1].body.clone()], "plain\n");
-        assert_eq!(f[1].info, "");
-        assert!(f[1].lang().is_none());
-    }
-
-    #[test]
-    fn closing_fence_needs_the_same_char_and_length() {
-        let text = "````\n```\nstill code\n````";
-        let f = fences(text);
-        assert_eq!(f.len(), 1);
-        assert_eq!(&text[f[0].body.clone()], "```\nstill code\n");
-        assert!(f[0].close.is_some());
-    }
-
-    #[test]
-    fn unclosed_fence_runs_to_the_end() {
-        let text = "a\n```rust\nfn main() {}";
-        let f = fences(text);
-        assert_eq!(f.len(), 1);
-        assert!(f[0].close.is_none());
-        assert_eq!(&text[f[0].body.clone()], "fn main() {}");
-        assert!(fence_at(text, text.len()).is_some());
-        assert!(fence_at(text, 0).is_none());
-    }
-
-    #[test]
-    fn segments_split_code_from_markdown() {
-        let text = "# T\n```cpp\nint x;\n```\nafter\n";
-        assert_eq!(
-            segments(text),
-            vec![
-                Segment::Markdown("# T\n"),
-                Segment::Code {
-                    info: "cpp",
-                    code: "int x;"
-                },
-                Segment::Markdown("after\n"),
-            ]
-        );
-    }
-
-    #[test]
-    fn list_items() {
-        let item = list_item("  - [x] done").unwrap();
-        assert_eq!(item.marker, 2..3);
-        assert_eq!(item.task, Some(4..7));
-        assert!(item.done);
-        assert_eq!(item.content, 8);
-        let item = list_item("12. twelve").unwrap();
-        assert_eq!(item.marker, 0..3);
-        assert_eq!(item.content, 4);
-        assert!(list_item("-not a list").is_none());
-        assert!(list_item("3.14 is pi").is_none());
-        assert!(list_item("-").is_some());
-    }
-
-    fn flags_of(line: &str) -> Vec<u8> {
-        let mut flags = vec![0; line.len()];
-        inline(line, 0, &mut flags);
-        flags
-    }
-
-    #[test]
-    fn inline_spans() {
-        let f = flags_of("a **b** `*c*` [[d]] _e_ snake_case");
-        let at = |s: &str| "a **b** `*c*` [[d]] _e_ snake_case".find(s).unwrap();
-        assert_eq!(f[at("b")], bits::STRONG);
-        assert_eq!(f[at("*c*") + 1], bits::CODE);
-        assert_eq!(f[at("d]")], bits::LINK);
-        assert_eq!(f[at("e_")], bits::EM);
-        assert_eq!(f[at("_case")], 0);
-    }
-
-    #[test]
-    fn layout_covers_every_byte() {
-        let text =
-            "# Title\n- [ ] task **bold**\n```py\ndef f(): pass\n```\n> quote\nñandú `x`\r\n";
-        let style = Style {
-            font: FontId::monospace(12.0),
-            text: Color32::WHITE,
-            strong: Color32::WHITE,
-            weak: Color32::GRAY,
-            link: Color32::BLUE,
-            code_bg: Color32::BLACK,
-            syntax: SyntaxColors::fallback(true),
-        };
-        let job = layout_job(text, &style);
-        assert_eq!(job.text, text);
     }
 }
