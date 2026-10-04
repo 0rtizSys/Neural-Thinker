@@ -38,7 +38,8 @@ implemented, and phase 4 adds custom CSS themes:
 - **Tiling layout**: the window is split into panes (Files, Editor, Preview, Graph, Outline,
   Backlinks) that sit side by side or stacked, never overlapping.
   - Drag the gap between two panes to resize them: the growing pane's border lights up and its
-    neighbour gives way, on a lightly damped spring. Double-click a gap to share it evenly.
+    neighbour gives way, on a lightly damped spring. Double-click a gap to share it evenly. Where a vertical and a horizontal gap meet, a small dot
+    marks a corner: dragging it resizes in both directions at once (diagonally).
   - Drag a pane's title bar onto another pane to dock it on that side (or onto its centre to
     swap them), or to an edge of the window to give it a full-length strip.
   - Each pane can be hidden (its place is remembered) or popped out into a native window of its

@@ -102,6 +102,23 @@ pub(super) fn layout(
     }
 }
 
+/// Pairs of (row gap, column gap) that touch, by index into `splitters`: the
+/// corners where one drag can resize in both directions.
+pub(super) fn corners(splitters: &[Splitter]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for (i, row) in splitters.iter().enumerate() {
+        if row.axis != Axis::Row {
+            continue;
+        }
+        for (j, col) in splitters.iter().enumerate() {
+            if col.axis == Axis::Column && row.rect.intersects(col.rect) {
+                out.push((i, j));
+            }
+        }
+    }
+    out
+}
+
 /// New shares for the two children around `splitter` when its gap is dragged to `pointer`.
 pub(super) fn resized_shares(splitter: &Splitter, shares: (f32, f32), pointer: f32) -> (f32, f32) {
     let pair = shares.0 + shares.1;

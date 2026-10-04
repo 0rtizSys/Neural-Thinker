@@ -5,7 +5,7 @@ use eframe::egui::{
 };
 
 use super::anim::{Anim, Spring};
-use super::geometry::{Drop, Splitter, along, drop_target, layout, resized_shares};
+use super::geometry::{Drop, Splitter, along, corners, drop_target, layout, resized_shares};
 use super::tree::{node_at_mut, remove_from};
 use super::{Axis, Dock, GAP, HEADER, Node, Pane, PaneHost};
 
@@ -237,6 +237,75 @@ impl Dock {
                     2.0 + t,
                     lerp_color(line, accent, t).gamma_multiply(0.6 + 0.4 * t),
                 ),
+            );
+        }
+        // Where a row gap meets a column gap, dragging resizes both at once (diagonally).
+        for (row, col) in corners(&splitters) {
+            let (row, col) = (&splitters[row], &splitters[col]);
+            let id = Id::new(("nt_corner", row.id(), col.id()));
+            let center = row.rect.intersect(col.rect).center();
+            let hit = Rect::from_center_size(center, Vec2::splat(GAP + 10.0));
+            let response = ui.interact(hit, id, Sense::click_and_drag());
+            let active = response.hovered() || response.dragged();
+            if active {
+                ctx.set_cursor_icon(CursorIcon::Move);
+            }
+            let shares = self
+                .root
+                .as_mut()
+                .and_then(|r| Some((pair_shares(r, row)?, pair_shares(r, col)?)));
+            if response.double_clicked()
+                && let Some(((a, b), (c, d))) = shares
+            {
+                for (splitter, sum) in [(row, a + b), (col, c + d)] {
+                    actions.push(Action::Resize {
+                        path: splitter.path.clone(),
+                        index: splitter.index,
+                        shares: (sum / 2.0, sum / 2.0),
+                    });
+                }
+            }
+            if response.dragged()
+                && let (Some((row_shares, col_shares)), Some(pos)) =
+                    (shares, response.interact_pointer_pos())
+            {
+                let delta = response.drag_delta();
+                if delta != Vec2::ZERO {
+                    let mut growing = Vec::new();
+                    let mut shrinking = Vec::new();
+                    for (splitter, d) in [(row, delta.x), (col, delta.y)] {
+                        if d != 0.0 {
+                            let (g, s) = if d > 0.0 {
+                                (&splitter.before, &splitter.after)
+                            } else {
+                                (&splitter.after, &splitter.before)
+                            };
+                            growing.extend(g.iter().copied());
+                            shrinking.extend(s.iter().copied());
+                        }
+                    }
+                    shrinking.retain(|p| !growing.contains(p));
+                    self.anim.resize = Some((id, growing, shrinking));
+                } else if self.anim.resize.as_ref().is_none_or(|(r, _, _)| *r != id) {
+                    self.anim.resize = Some((id, Vec::new(), Vec::new()));
+                }
+                actions.push(Action::Resize {
+                    path: row.path.clone(),
+                    index: row.index,
+                    shares: resized_shares(row, row_shares, pos.x),
+                });
+                actions.push(Action::Resize {
+                    path: col.path.clone(),
+                    index: col.index,
+                    shares: resized_shares(col, col_shares, pos.y),
+                });
+            }
+            // A small dot marks the junction; it grows and lights up under the pointer.
+            let t = ctx.animate_bool_with_time(id, active, 0.15);
+            ui.painter().circle_filled(
+                center,
+                1.5 + 2.5 * t,
+                lerp_color(line, accent, t).gamma_multiply(0.5 + 0.5 * t),
             );
         }
         if self.anim.resize.is_some() && !ctx.input(|i| i.pointer.any_down()) {
