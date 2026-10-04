@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
 
-use super::{GraphSettings, GraphView, Projected};
+use super::{GraphSettings, GraphView, NO_TAG, Projected};
 
 impl GraphView {
     /// Draws the toolbar and the graph. Returns the note the user clicked.
@@ -42,6 +42,7 @@ impl GraphView {
         if settings.three_d && settings.auto_rotate && self.dragged_node.is_none() {
             self.yaw += dt * 0.25;
         }
+        let gliding = self.navigate(ui, &response, current, dt, settings);
         let center = rect.center();
         let mut fitting = false;
         if self.auto_fit
@@ -53,6 +54,19 @@ impl GraphView {
             self.zoom += (zoom - self.zoom) * t;
             self.pan += (pan - self.pan) * t;
             fitting = (zoom - self.zoom).abs() > 0.002 * zoom || (pan - self.pan).length() > 0.5;
+        }
+        if let Some(i) = self.center_on.filter(|&i| i < self.pos.len()) {
+            let t = (dt * 8.0).min(1.0);
+            if let Some(zoom) = self.center_zoom {
+                self.zoom += (zoom - self.zoom) * t;
+                if (zoom - self.zoom).abs() <= 0.002 * zoom {
+                    self.zoom = zoom;
+                    self.center_zoom = None;
+                }
+            }
+            let offset = self.project(self.pos[i], center, settings).pos - center;
+            self.pan -= offset * t;
+            fitting |= offset.length() > 0.5 || self.center_zoom.is_some();
         }
 
         let projected: Vec<Projected> = self
@@ -111,6 +125,15 @@ impl GraphView {
         let edge_color = colors.edge;
         let text_color = colors.label;
         let bg = colors.background;
+        let tag_colors = self.tag_colors(&colors);
+        // A tag picked in the legend fades every note without it.
+        let tag_dim = |i: usize| -> f32 {
+            if self.tag_mask.get(i).copied().unwrap_or(true) {
+                1.0
+            } else {
+                0.18
+            }
+        };
 
         // Depth fade in 3D: far nodes are dimmer.
         let (near_z, far_z) = projected.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
@@ -144,7 +167,7 @@ impl GraphView {
             } else {
                 edge_color
             };
-            let alpha = dim(near) * (fog(pa) + fog(pb)) / 2.0;
+            let alpha = dim(near) * (fog(pa) + fog(pb)) / 2.0 * tag_dim(a).min(tag_dim(b));
             let width = if near { 1.0 + focus_t } else { 1.0 };
             add_line(
                 &mut links,
@@ -173,11 +196,14 @@ impl GraphView {
             }
             let r = radius(i, p.scale);
             let is_current = current == Some(self.graph.nodes[i].path.as_path());
-            let alpha = dim(is_near(i)) * fog(p);
+            let alpha = dim(is_near(i)) * fog(p) * tag_dim(i);
             let fill = if is_current || self.focus == Some(i) {
                 accent
             } else {
-                node_color
+                match self.node_tag[i] {
+                    NO_TAG => node_color,
+                    tag => tag_colors[tag as usize],
+                }
             };
             dots.push(egui::Shape::circle_filled(
                 p.pos,
@@ -237,9 +263,13 @@ impl GraphView {
         }
         painter.extend(dots);
         painter.extend(overlay);
+        if settings.legend {
+            self.legend(ui, rect, &tag_colors, &colors);
+        }
 
         let moving = self.alpha > 0.0
             || fitting
+            || gliding
             || (settings.three_d && settings.auto_rotate)
             || (0.0 < focus_t && focus_t < 1.0);
         if moving {

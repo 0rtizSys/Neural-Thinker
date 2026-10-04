@@ -58,10 +58,19 @@ implemented, and phase 4 adds custom CSS themes:
   link (`[text](other.md)`) an edge.
   - 2D: drag a node to move it, drag the background to pan, scroll to zoom, click a node to
     open it. Hovering highlights the node's direct links.
-  - 3D: the same graph with depth; drag to orbit, `Shift`+drag to pan, a depth slider scales
-    the third axis, optional slow rotation. Far nodes fade.
+  - 3D: the same graph with depth; drag to orbit (the view glides on after you let go),
+    `Shift`+drag to pan, a depth slider scales the third axis, optional slow rotation. Far
+    nodes fade.
+  - Keyboard camera, with the pointer over the graph or after clicking it: `W`/`S` fly forward
+    and back, `A`/`D` left and right, `Q`/`E` down and up, arrows orbit, `+`/`-` zoom, `Shift`
+    goes faster. In 2D, WASD or the arrows pan and `Q`/`E` zoom. `F` frames every note, `C`
+    centers the hovered (or open) note. Movement eases in and out.
+  - **Tags**: `#tag` in the text (Obsidian rules: not in code, not a bare number, nested
+    `#area/topic` allowed) or `tags:` in YAML frontmatter. Each node takes the color of its
+    first tag; a legend lists the most used tags, and clicking one highlights its notes
+    (`Esc` clears). Colors come from the theme (`--tag-<name>`, `--graph-tag-1`…`8`).
   - The force-directed layout stops simulating once it settles, so an idle graph does not use
-    the CPU or GPU. Repulsion is O(n²), suitable for vaults of a few hundred notes.
+    the CPU or GPU.
 - Minimal default theme with one accent color and short (~0.15 s) transitions: panes glide into
   place, popups fade, status messages fade out.
 

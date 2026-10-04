@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use crate::theme::ThemeSpec;
 
 use rules::{parse_rules, resolve, strip_comments, var_names};
-use values::set_property;
+use values::{parse_color, set_property};
 
 /// Largest theme file read; bigger files are refused.
 pub const MAX_THEME_BYTES: u64 = 256 * 1024;
@@ -97,6 +97,14 @@ pub const PROPERTIES: &[(&str, Kind, &str)] = &[
         Kind::Color,
         "Node labels (default: --text)",
     ),
+    ("--graph-tag-1", Kind::Color, "Automatic tag color 1"),
+    ("--graph-tag-2", Kind::Color, "Automatic tag color 2"),
+    ("--graph-tag-3", Kind::Color, "Automatic tag color 3"),
+    ("--graph-tag-4", Kind::Color, "Automatic tag color 4"),
+    ("--graph-tag-5", Kind::Color, "Automatic tag color 5"),
+    ("--graph-tag-6", Kind::Color, "Automatic tag color 6"),
+    ("--graph-tag-7", Kind::Color, "Automatic tag color 7"),
+    ("--graph-tag-8", Kind::Color, "Automatic tag color 8"),
     (
         "--syntax-heading",
         Kind::Color,
@@ -236,6 +244,7 @@ pub fn parse(css: &str) -> Parsed {
     let mut reported = HashSet::new();
     for d in &decls {
         if !known.contains(d.name.as_str())
+            && tag_name(&d.name).is_none()
             && !referenced.contains(&d.name)
             && reported.insert(d.name.clone())
         {
@@ -287,10 +296,41 @@ pub fn parse(css: &str) -> Parsed {
                 warnings.push(format!("line {}: `{name}`: {e}", decl.line));
             }
         }
+        // `--tag-<name>`: one tag's color in the graph.
+        let mut tag_decls: Vec<&Declaration> = vars
+            .values()
+            .copied()
+            .filter(|d| tag_name(&d.name).is_some())
+            .collect();
+        tag_decls.sort_by_key(|d| d.line);
+        for decl in tag_decls {
+            let name = &decl.name;
+            match resolve(&decl.value, &vars, 0).and_then(|v| parse_color(&v)) {
+                Ok(c) => {
+                    let tag = tag_name(name).unwrap_or_default();
+                    mode.graph.tags.insert(tag, c);
+                }
+                Err(e) => {
+                    if dark
+                        || !decls
+                            .iter()
+                            .any(|d| d.name == *name && d.scope.matches(true))
+                    {
+                        warnings.push(format!("line {}: `{name}`: {e}", decl.line));
+                    }
+                }
+            }
+        }
     }
     Parsed {
         spec,
         fonts,
         warnings,
     }
+}
+
+/// The tag a `--tag-<name>` property colors, lowercase and without `#`.
+fn tag_name(property: &str) -> Option<String> {
+    let tag = property.strip_prefix("--tag-")?.trim_start_matches('#');
+    (!tag.is_empty()).then(|| tag.to_lowercase())
 }

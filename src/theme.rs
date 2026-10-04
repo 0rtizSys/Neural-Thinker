@@ -2,6 +2,8 @@
 //! animations. Everything here is a starting point the user can restyle with a
 //! CSS theme file (see `theme_css` and `custom_theme`).
 
+use std::collections::BTreeMap;
+
 use eframe::egui::{
     self, Color32, CornerRadius, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle, Theme,
 };
@@ -83,7 +85,37 @@ pub struct GraphPalette {
     pub edge: Option<Color32>,
     pub highlight: Option<Color32>,
     pub label: Option<Color32>,
+    /// `--graph-tag-1` to `--graph-tag-8`: colors given to tags without their own.
+    pub tag_slots: [Option<Color32>; TAG_SLOTS],
+    /// `--tag-<name>`: the color of one tag (lowercase name, without `#`).
+    pub tags: BTreeMap<String, Color32>,
 }
+
+/// Number of automatic tag colors.
+pub const TAG_SLOTS: usize = 8;
+
+/// Automatic tag colors: distinct hues that stay clear of the violet accent,
+/// lighter on dark backgrounds and deeper on light ones.
+const DARK_TAGS: [Color32; TAG_SLOTS] = [
+    Color32::from_rgb(111, 168, 255),
+    Color32::from_rgb(229, 180, 95),
+    Color32::from_rgb(143, 207, 107),
+    Color32::from_rgb(242, 122, 143),
+    Color32::from_rgb(95, 208, 192),
+    Color32::from_rgb(242, 146, 90),
+    Color32::from_rgb(232, 138, 216),
+    Color32::from_rgb(214, 211, 106),
+];
+const LIGHT_TAGS: [Color32; TAG_SLOTS] = [
+    Color32::from_rgb(47, 111, 214),
+    Color32::from_rgb(176, 122, 18),
+    Color32::from_rgb(63, 143, 42),
+    Color32::from_rgb(200, 54, 79),
+    Color32::from_rgb(19, 138, 124),
+    Color32::from_rgb(196, 90, 28),
+    Color32::from_rgb(176, 63, 163),
+    Color32::from_rgb(138, 132, 16),
+];
 
 /// Editor and code block colors; each falls back to the mode's default when unset.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -181,6 +213,8 @@ pub struct GraphColors {
     pub edge: Color32,
     pub highlight: Color32,
     pub label: Color32,
+    pub tag_slots: [Color32; TAG_SLOTS],
+    pub tags: BTreeMap<String, Color32>,
 }
 
 fn graph_palette_id() -> egui::Id {
@@ -220,6 +254,14 @@ pub fn graph_colors(ui: &egui::Ui) -> GraphColors {
         }),
         highlight: set.highlight.unwrap_or(visuals.selection.stroke.color),
         label: set.label.unwrap_or_else(|| visuals.text_color()),
+        tag_slots: std::array::from_fn(|i| {
+            set.tag_slots[i].unwrap_or(if theme == Theme::Dark {
+                DARK_TAGS[i]
+            } else {
+                LIGHT_TAGS[i]
+            })
+        }),
+        tags: set.tags,
     }
 }
 

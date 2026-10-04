@@ -108,6 +108,15 @@ Named colors other than the three above are not supported.
 | `--graph-edge` | color | Graph links |
 | `--graph-highlight` | color | Open, hovered and linked nodes (default: `--accent`) |
 | `--graph-label` | color | Node labels (default: `--text`) |
+| `--graph-tag-1` | color | Automatic tag color 1 |
+| `--graph-tag-2` | color | Automatic tag color 2 |
+| `--graph-tag-3` | color | Automatic tag color 3 |
+| `--graph-tag-4` | color | Automatic tag color 4 |
+| `--graph-tag-5` | color | Automatic tag color 5 |
+| `--graph-tag-6` | color | Automatic tag color 6 |
+| `--graph-tag-7` | color | Automatic tag color 7 |
+| `--graph-tag-8` | color | Automatic tag color 8 |
+| `--tag-<name>` | color | Color of the notes whose first tag is `#<name>` (see below) |
 | `--syntax-heading` | color | Editor: heading text (default: `--accent`) |
 | `--syntax-marker` | color | Editor: Markdown symbols like `#`, `**`, `-` and fences |
 | `--syntax-code` | color | Editor: inline `code` |
@@ -131,6 +140,27 @@ Named colors other than the three above are not supported.
 | `--radius` | length | Button and input corner radius |
 | `--window-radius` | length | Dialog and menu corner radius |
 | `--animation-duration` | time | Hover, panel and popup transitions |
+
+### Tag colors
+
+A note's graph node takes the color of its **first** tag (frontmatter `tags:` first, then
+`#tags` in the text, in order). That color is looked up as:
+
+1. `--tag-<name>` for the tag itself, e.g. `--tag-work: #e0a458;` (case does not matter, the
+   leading `#` is optional: `--tag-#work` works too);
+2. for a nested tag such as `#work/alpha`, `--tag-work/alpha`, then the parent `--tag-work`;
+3. otherwise one of the eight automatic colors `--graph-tag-1` … `--graph-tag-8`. Each tag
+   prefers the slot its name hashes to, so it keeps its color as the vault grows; the eight
+   most used tags always get different slots.
+
+Untagged notes use `--graph-node`; the open and hovered notes use `--graph-highlight`.
+`--tag-*` properties are not validated against a list, so a misspelled tag simply has no
+effect.
+
+```css
+:root        { --tag-work: #e0a458; --tag-ideas: hsl(200 70% 60%); }
+.theme-light { --tag-work: #a8641c; }
+```
 
 Every property can be set per mode, except the two fonts, which are shared: only the dark
 (or shared) value is used. The built-in proportional font stays as a fallback behind a custom

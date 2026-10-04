@@ -24,6 +24,7 @@ mod quick_css;
 mod search;
 pub mod services;
 mod smart_edit;
+mod tags;
 mod theme;
 mod theme_css;
 mod vault;

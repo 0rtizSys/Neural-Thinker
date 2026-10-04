@@ -47,13 +47,16 @@ The Hyprland-style tiling dock that places panes in the main window.
 
 | File | Responsibility |
 | --- | --- |
-| `graph.rs` | The note graph: notes as nodes, links as edges |
+| `graph.rs` | The note graph: notes as nodes, links as edges, each node's tags |
+| `tags.rs` | `#tags` and frontmatter `tags:` of a note |
 | `graph_layout.rs` | Node repulsion (Barnes-Hut on large graphs) |
 | `graph_view/mod.rs` | `GraphView` state, `GraphSettings` and loading a graph |
 | `graph_view/simulation.rs` | The force simulation step and initial positions |
 | `graph_view/camera.rs` | 2D/3D projection, rotation and fit-to-view |
 | `graph_view/render.rs` | Drawing a frame (link mesh, nodes, labels, fog) |
 | `graph_view/input.rs` | Toolbar and mouse interaction |
+| `graph_view/navigation.rs` | Keyboard camera, glide after a drag, frame (`F`) and center (`C`) |
+| `graph_view/tag_colors.rs` | Node colors by first tag, the tag legend and its highlight |
 | `graph_view/bench.rs` | Ignored benchmark: `cargo test --release graph_bench -- --ignored --nocapture` |
 
 ### Themes

@@ -64,6 +64,10 @@
     --syntax-string: #a3be8c;
     --syntax-number: #d08770;
     --syntax-comment: #7d7064;
+
+    /* Tags: notes whose first tag is #ideas, and the automatic colors' first slot. */
+    --tag-ideas: #9fc3a8;
+    --graph-tag-1: #d9a066;
 }
 
 /* Light mode. @media (prefers-color-scheme: light) { :root { ... } } works too. */
