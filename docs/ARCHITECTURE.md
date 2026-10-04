@@ -21,7 +21,8 @@ siblings are `pub(super)`; nothing outside the directory sees them.
 | `mod.rs` | `NtApp` and persisted `Settings`, shortcuts, construction and the per-frame loop (`eframe::App`) |
 | `file_ops.rs` | Open, save, save as, the root folder picker and the unsaved-changes flow |
 | `navigation.rs` | The Files pane: the folder tree and creating, renaming and deleting notes |
-| `panes.rs` | Pane contents: editor, preview, graph, outline, backlinks and the welcome page |
+| `panes.rs` | Pane contents: graph, outline, backlinks and the welcome page |
+| `editor.rs` | The editor and preview panes: highlighting, smart indentation keys, `[[link]]` completion, code blocks, scrolling while selecting |
 | `search.rs` | The note index, the search palette and bringing panes into view |
 | `capture.rs` | The quick add popup |
 | `chrome.rs` | Keyboard shortcuts, window title, menu bar and status bar |
@@ -77,6 +78,12 @@ The Hyprland-style tiling dock that places panes in the main window.
 | `fuzzy.rs` | Fuzzy matching of short strings |
 | `palette.rs` | The quick open / search popup |
 | `link_complete.rs` | `[[link]]` autocomplete in the editor |
+| `markdown/mod.rs` | Fenced code blocks, list items, and splitting a note into Markdown and code for the preview |
+| `markdown/layout.rs` | Colored layout of the Markdown source in the editor, cached while the text is unchanged |
+| `highlight/mod.rs` | Code block tokenizer (keywords, types, strings, numbers, comments) and fence language lookup |
+| `highlight/languages.rs` | The language table (~25 languages) |
+| `smart_edit/mod.rs` | IDE-like typing: Enter indentation and list continuation, Tab/Shift+Tab, Backspace and closing brackets in code |
+| `advanced.rs` | The Advanced options switches (autosave, highlighting, smart indentation) and their window |
 | `outline.rs` | Heading outline of a document |
 | `quick_add.rs` | Creating quick add notes in the inbox |
 | `widgets.rs` | Shared widgets and line icons |

@@ -3,6 +3,7 @@
 mod capture;
 mod chrome;
 mod dialogs;
+mod editor;
 mod file_ops;
 mod layout;
 mod navigation;
@@ -15,11 +16,13 @@ use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 use egui_commonmark::CommonMarkCache;
 use serde::{Deserialize, Serialize};
 
+use crate::advanced::Advanced;
 use crate::custom_theme::CustomThemes;
 use crate::dock::Dock;
 use crate::document::Document;
 use crate::graph_view::{GraphSettings, GraphView};
 use crate::link_complete::LinkComplete;
+use crate::markdown;
 use crate::palette::Palette;
 use crate::quick_css::{self, QuickCss};
 use crate::search::NoteIndex;
@@ -67,6 +70,8 @@ struct Settings {
     graph: GraphSettings,
     /// File name of the CSS theme in the themes folder; `None` for the built-in look.
     custom_theme: Option<String>,
+    /// Editor behaviors that can be switched off (Settings > Advanced options).
+    advanced: Advanced,
 }
 
 impl Default for Settings {
@@ -79,6 +84,7 @@ impl Default for Settings {
             show_all_files: false,
             graph: GraphSettings::default(),
             custom_theme: None,
+            advanced: Advanced::default(),
         }
     }
 }
@@ -168,6 +174,11 @@ pub struct NtApp {
     open_at: Option<(PathBuf, usize)>,
     themes: CustomThemes,
     quick_css: QuickCss,
+    show_advanced: bool,
+    /// Colored layout of the editor text, kept while the text is unchanged.
+    highlighter: markdown::Highlighter,
+    /// Scroll the editor to its cursor on the next frame (after a smart edit).
+    scroll_to_cursor: bool,
 }
 
 /// A pane the user needs to see after an action.
@@ -231,6 +242,9 @@ impl NtApp {
             open_at: None,
             themes,
             quick_css: QuickCss::default(),
+            show_advanced: false,
+            highlighter: markdown::Highlighter::default(),
+            scroll_to_cursor: false,
         };
         if app.settings.custom_theme.is_some() {
             app.status = theme_status.unwrap_or_default();
@@ -308,6 +322,7 @@ impl eframe::App for NtApp {
         }
         self.services_window(&ctx);
         self.about_window(&ctx);
+        self.settings.advanced.window(&ctx, &mut self.show_advanced);
         if let Some(quick_css::Action::Open(path)) =
             self.quick_css
                 .show(&ctx, &mut self.themes, &mut self.settings.custom_theme)

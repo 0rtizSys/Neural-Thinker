@@ -1,14 +1,11 @@
-//! The contents of the docked panes: editor, preview, graph, outline, backlinks
-//! and the welcome page.
+//! The contents of the docked panes: graph, outline, backlinks and the welcome
+//! page. The editor and the preview are in `editor.rs`.
 
 use std::path::Path;
 
 use eframe::egui::{self};
-use egui::text::{CCursor, CCursorRange};
-use egui_commonmark::CommonMarkViewer;
 
 use crate::graph::Graph;
-use crate::link_complete::{self};
 use crate::outline;
 
 use super::{
@@ -134,100 +131,6 @@ impl NtApp {
             let ctx = ui.ctx().clone();
             self.open_note_at(path, offset, &ctx);
         }
-    }
-
-    pub(super) fn editor(&mut self, ui: &mut egui::Ui) {
-        let editor_id = egui::Id::new("nt_editor");
-        let focused = ui.memory(|m| m.has_focus(editor_id));
-        // The link suggestions take Enter, Tab and the arrows before the editor does.
-        let nav = if focused {
-            self.link_complete.consume_keys(ui.ctx())
-        } else {
-            None
-        };
-        egui::ScrollArea::vertical()
-            .id_salt("editor")
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                let output = egui::TextEdit::multiline(&mut self.doc.text)
-                    .id(egui::Id::new("nt_editor"))
-                    .frame(egui::Frame::NONE)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text("Start writing Markdown...")
-                    .desired_width(f32::INFINITY)
-                    .min_size(ui.available_size())
-                    .lock_focus(true)
-                    .show(ui);
-                if let Some(offset) = self.jump_to.take() {
-                    let cursor = CCursor::new(offset);
-                    let id = output.response.response.id;
-                    let mut state = output.state.clone();
-                    state.cursor.set_char_range(Some(CCursorRange::one(cursor)));
-                    state.store(ui.ctx(), id);
-                    ui.memory_mut(|m| m.request_focus(id));
-                    let rect = output
-                        .galley
-                        .pos_from_cursor(cursor)
-                        .translate(output.galley_pos.to_vec2());
-                    ui.scroll_to_rect(rect, Some(egui::Align::TOP));
-                }
-                self.complete_links(ui, &output, focused, nav);
-            });
-    }
-
-    /// Suggests notes while a `[[link` is being typed, and inserts the chosen one.
-    fn complete_links(
-        &mut self,
-        ui: &egui::Ui,
-        output: &egui::text_edit::TextEditOutput,
-        focused: bool,
-        nav: Option<link_complete::Nav>,
-    ) {
-        let cursor = output
-            .cursor_range
-            .filter(|r| r.is_empty())
-            .map(|r| r.primary);
-        let link = cursor
-            .filter(|_| focused && self.settings.root.is_some())
-            .and_then(|c| link_complete::context(&self.doc.text, c.index.0));
-        if link.is_none() && !self.link_complete.is_open() {
-            return;
-        }
-        self.index();
-        let Some(index) = self.index.as_ref() else {
-            return;
-        };
-        let mut chosen = self.link_complete.update(link.clone(), index, nav);
-        if let Some(cursor) = cursor {
-            let anchor = output
-                .galley
-                .pos_from_cursor(cursor)
-                .translate(output.galley_pos.to_vec2())
-                .left_bottom();
-            if let Some(title) = self.link_complete.popup(ui.ctx(), anchor, index) {
-                chosen = Some(title);
-            }
-        }
-        if let (Some(title), Some(link), Some(cursor)) = (chosen, link, cursor) {
-            let at = link_complete::accept(&mut self.doc.text, &link, cursor.index.0, &title);
-            let id = output.response.response.id;
-            let mut state = output.state.clone();
-            state
-                .cursor
-                .set_char_range(Some(CCursorRange::one(CCursor::new(at))));
-            state.store(ui.ctx(), id);
-            ui.memory_mut(|m| m.request_focus(id));
-            ui.ctx().request_repaint();
-        }
-    }
-
-    pub(super) fn preview(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical()
-            .id_salt("preview")
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                CommonMarkViewer::new().show(ui, &mut self.md_cache, &self.doc.text);
-            });
     }
 
     pub(super) fn graph(&mut self, ui: &mut egui::Ui) {

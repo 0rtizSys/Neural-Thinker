@@ -18,6 +18,7 @@ pub(super) fn set_property(
 ) -> Result<(), String> {
     let p = &mut mode.palette;
     let g = &mut mode.graph;
+    let x = &mut mode.syntax;
     let m = &mut mode.metrics;
     match kind {
         Kind::Color => {
@@ -40,6 +41,15 @@ pub(super) fn set_property(
                 "--graph-edge" => g.edge = Some(c),
                 "--graph-highlight" => g.highlight = Some(c),
                 "--graph-label" => g.label = Some(c),
+                "--syntax-heading" => x.heading = Some(c),
+                "--syntax-marker" => x.marker = Some(c),
+                "--syntax-code" => x.code = Some(c),
+                "--syntax-keyword" => x.keyword = Some(c),
+                "--syntax-type" => x.r#type = Some(c),
+                "--syntax-function" => x.function = Some(c),
+                "--syntax-string" => x.string = Some(c),
+                "--syntax-number" => x.number = Some(c),
+                "--syntax-comment" => x.comment = Some(c),
                 _ => unreachable!("{name} is listed as a color"),
             }
         }
