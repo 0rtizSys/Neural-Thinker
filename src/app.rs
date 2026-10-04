@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
+use egui::collapsing_header::CollapsingState;
 use egui::text::{CCursor, CCursorRange};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,8 @@ use crate::palette::{self, Palette};
 use crate::search::NoteIndex;
 use crate::services::{Services, VaultEvent};
 use crate::vault::{self, Entry, EntryKind};
-use crate::{outline, quick_add, theme};
+use crate::widgets::Icon;
+use crate::{outline, quick_add, theme, widgets};
 
 const SETTINGS_KEY: &str = "nt_settings";
 
@@ -92,6 +94,15 @@ enum NavAction {
     Delete(PathBuf),
 }
 
+/// The "new note" / "new folder" dialog's state. Nothing is created until a name is given.
+struct Create {
+    dir: PathBuf,
+    folder: bool,
+    name: String,
+    error: Option<String>,
+    focus_requested: bool,
+}
+
 /// The rename dialog's state.
 struct Rename {
     path: PathBuf,
@@ -116,6 +127,7 @@ pub struct NtApp {
     /// Rescan the root folder at the start of the next frame.
     tree_stale: bool,
     nav_filter: String,
+    create: Option<Create>,
     rename: Option<Rename>,
     delete: Option<PathBuf>,
     /// Character offset to move the editor cursor to on the next frame.
@@ -190,6 +202,7 @@ impl NtApp {
             tree_error: None,
             tree_stale: true,
             nav_filter: String::new(),
+            create: None,
             rename: None,
             delete: None,
             jump_to: None,
@@ -422,26 +435,45 @@ impl NtApp {
                     self.request(Pending::OpenPath(path), ctx);
                 }
             }
-            NavAction::NewNote(dir) => match vault::create_note(&dir) {
-                Ok(path) => {
-                    self.status = format!("Created {}", self.display_path(&path).display());
-                    self.services.notify(VaultEvent::Created(&path));
-                    self.tree_stale = true;
-                    self.request(Pending::OpenPath(path), ctx);
-                }
-                Err(e) => self.status = format!("Could not create note: {e}"),
-            },
-            NavAction::NewFolder(dir) => match vault::create_folder(&dir) {
-                Ok(path) => {
-                    self.status = format!("Created {}", self.display_path(&path).display());
-                    self.services.notify(VaultEvent::Created(&path));
-                    self.tree_stale = true;
-                    self.start_rename(path);
-                }
-                Err(e) => self.status = format!("Could not create folder: {e}"),
-            },
+            NavAction::NewNote(dir) => self.start_create(dir, false),
+            NavAction::NewFolder(dir) => self.start_create(dir, true),
             NavAction::Rename(path) => self.start_rename(path),
             NavAction::Delete(path) => self.delete = Some(path),
+        }
+    }
+
+    fn start_create(&mut self, dir: PathBuf, folder: bool) {
+        self.create = Some(Create {
+            dir,
+            folder,
+            name: String::new(),
+            error: None,
+            focus_requested: false,
+        });
+    }
+
+    /// Applies the create dialog; on failure the dialog stays open with the error.
+    fn finish_create(&mut self, ctx: &egui::Context) {
+        let Some(create) = &mut self.create else {
+            return;
+        };
+        let result = if create.folder {
+            vault::create_folder(&create.dir, &create.name)
+        } else {
+            vault::create_note(&create.dir, &create.name)
+        };
+        match result {
+            Ok(path) => {
+                let folder = create.folder;
+                self.create = None;
+                self.status = format!("Created {}", self.display_path(&path).display());
+                self.services.notify(VaultEvent::Created(&path));
+                self.tree_stale = true;
+                if !folder {
+                    self.request(Pending::OpenPath(path), ctx);
+                }
+            }
+            Err(e) => create.error = Some(e.to_string()),
         }
     }
 
@@ -919,20 +951,16 @@ impl NtApp {
             ui.strong(folder_name(&root))
                 .on_hover_text(root.display().to_string());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("⟳").on_hover_text("Refresh").clicked() {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                if widgets::icon_button(ui, Icon::Refresh, "Refresh").clicked() {
                     self.tree_stale = true;
                 }
-                if ui
-                    .small_button("+ Folder")
-                    .on_hover_text("New folder in the root folder")
+                if widgets::icon_button(ui, Icon::NewFolder, "New folder in the root folder")
                     .clicked()
                 {
                     actions.push(NavAction::NewFolder(root.clone()));
                 }
-                if ui
-                    .small_button("+ Note")
-                    .on_hover_text("New note in the root folder")
-                    .clicked()
+                if widgets::icon_button(ui, Icon::NewNote, "New note in the root folder").clicked()
                 {
                     actions.push(NavAction::NewNote(root.clone()));
                 }
@@ -954,6 +982,7 @@ impl NtApp {
             .id_salt("nav_tree")
             .auto_shrink(false)
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
                 if self.nav_filter.trim().is_empty() {
                     if self.tree.is_empty() && self.tree_error.is_none() {
                         ui.weak("This folder has no notes yet.");
@@ -1390,6 +1419,80 @@ impl NtApp {
         }
     }
 
+    fn create_dialog(&mut self, ctx: &egui::Context) {
+        let root = self.settings.root.clone();
+        let Some(create) = &mut self.create else {
+            return;
+        };
+        let mut submit = false;
+        let mut cancel = false;
+        egui::Modal::new(egui::Id::new("create")).show(ctx, |ui| {
+            ui.set_width(340.0);
+            ui.heading(if create.folder {
+                "New folder"
+            } else {
+                "New note"
+            });
+            let place = root
+                .as_deref()
+                .and_then(|r| create.dir.strip_prefix(r).ok())
+                .filter(|p| !p.as_os_str().is_empty())
+                .map_or_else(
+                    || "In the root folder".to_owned(),
+                    |p| format!("In {}", p.display()),
+                );
+            ui.weak(place);
+            ui.add_space(6.0);
+            let hint = if create.folder {
+                "Folder name"
+            } else {
+                "Note name"
+            };
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut create.name)
+                    .hint_text(hint)
+                    .desired_width(f32::INFINITY),
+            );
+            if !create.focus_requested {
+                response.request_focus();
+                create.focus_requested = true;
+            }
+            if response.changed() {
+                create.error = None;
+            }
+            let named = !create.name.trim().is_empty();
+            if named && response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                submit = true;
+            }
+            if let Some(error) = &create.error {
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            }
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                let create_button = if named {
+                    widgets::primary_button(ui, "Create")
+                } else {
+                    egui::Button::new("Create")
+                };
+                if ui
+                    .add_enabled(named, create_button)
+                    .on_disabled_hover_text("Type a name first")
+                    .clicked()
+                {
+                    submit = true;
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    cancel = true;
+                }
+            });
+        });
+        if cancel {
+            self.create = None;
+        } else if submit {
+            self.finish_create(ctx);
+        }
+    }
+
     fn rename_dialog(&mut self, ctx: &egui::Context) {
         let Some(rename) = &mut self.rename else {
             return;
@@ -1397,7 +1500,7 @@ impl NtApp {
         let mut submit = false;
         let mut cancel = false;
         egui::Modal::new(egui::Id::new("rename")).show(ctx, |ui| {
-            ui.set_min_width(320.0);
+            ui.set_width(340.0);
             ui.heading("Rename");
             let response =
                 ui.add(egui::TextEdit::singleline(&mut rename.name).desired_width(f32::INFINITY));
@@ -1416,7 +1519,7 @@ impl NtApp {
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Rename").clicked() {
+                if ui.add(widgets::primary_button(ui, "Rename")).clicked() {
                     submit = true;
                 }
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -1684,6 +1787,8 @@ impl eframe::App for NtApp {
         // One modal at a time; the unsaved-changes prompt comes first.
         if self.pending.is_some() {
             self.confirm_dialog(&ctx);
+        } else if self.create.is_some() {
+            self.create_dialog(&ctx);
         } else if self.rename.is_some() {
             self.rename_dialog(&ctx);
         } else {
@@ -1710,17 +1815,25 @@ fn tree_ui(
         if entry.kind == EntryKind::Folder {
             // Keep the folder holding the open document expanded.
             let holds_current = current.is_some_and(|c| c.starts_with(&entry.path));
-            let response = egui::CollapsingHeader::new(format!("🗀 {}", entry.name))
-                .id_salt(&entry.path)
-                .default_open(holds_current)
-                .show(ui, |ui| {
-                    if entry.children.is_empty() {
-                        ui.weak("(empty)");
-                    }
-                    tree_ui(ui, &entry.children, current, actions);
-                });
-            response
-                .header_response
+            let id = ui.make_persistent_id(&entry.path);
+            let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, holds_current);
+            let openness = state.openness(ui.ctx());
+            let header = widgets::tree_row(
+                ui,
+                widgets::RowKind::Folder { openness },
+                &entry.name,
+                false,
+            );
+            if header.clicked() {
+                state.toggle(ui);
+            }
+            state.show_body_indented(&header, ui, |ui| {
+                if entry.children.is_empty() {
+                    ui.weak("(empty)");
+                }
+                tree_ui(ui, &entry.children, current, actions);
+            });
+            header
                 .on_hover_text(format!("{} notes", entry.note_count()))
                 .context_menu(|ui| folder_menu(ui, &entry.path, true, actions));
         } else {
@@ -1737,11 +1850,11 @@ fn file_row(
     actions: &mut Vec<NavAction>,
 ) -> egui::Response {
     let is_current = current == Some(entry.path.as_path());
-    let label = match entry.kind {
-        EntryKind::Note => egui::RichText::new(format!("🗋 {}", entry.name)),
-        _ => egui::RichText::new(format!("🗋 {}", entry.name)).weak(),
+    let kind = match entry.kind {
+        EntryKind::Note => widgets::RowKind::Note,
+        _ => widgets::RowKind::File,
     };
-    let response = ui.selectable_label(is_current, label);
+    let response = widgets::tree_row(ui, kind, &entry.name, is_current);
     if response.clicked() && entry.kind == EntryKind::Note {
         actions.push(NavAction::Open(entry.path.clone()));
     }

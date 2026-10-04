@@ -176,21 +176,41 @@ pub fn unique_path(dir: &Path, stem: &str, extension: Option<&str>) -> PathBuf {
         .expect("unbounded range always yields a free name")
 }
 
-/// Creates an empty note `Untitled.md` (or `Untitled N.md`) in `dir`.
-pub fn create_note(dir: &Path) -> io::Result<PathBuf> {
-    let path = unique_path(dir, "Untitled", Some(DEFAULT_EXTENSION));
+/// Creates an empty note named `name` in `dir`; `.md` is added when `name` has no extension.
+/// An empty or unportable name creates nothing, and an existing entry is never overwritten.
+pub fn create_note(dir: &Path, name: &str) -> io::Result<PathBuf> {
+    let mut path = new_entry_path(dir, name)?;
+    if path.extension().is_none() {
+        path.set_extension(DEFAULT_EXTENSION);
+    }
     fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&path)?;
+        .open(&path)
+        .map_err(|e| already_exists(e, &path))?;
     Ok(path)
 }
 
-/// Creates an empty folder `New folder` (or `New folder N`) in `dir`.
-pub fn create_folder(dir: &Path) -> io::Result<PathBuf> {
-    let path = unique_path(dir, "New folder", None);
-    fs::create_dir(&path)?;
+/// Creates an empty folder named `name` in `dir`, with the same rules as [`create_note`].
+pub fn create_folder(dir: &Path, name: &str) -> io::Result<PathBuf> {
+    let path = new_entry_path(dir, name)?;
+    fs::create_dir(&path).map_err(|e| already_exists(e, &path))?;
     Ok(path)
+}
+
+fn new_entry_path(dir: &Path, name: &str) -> io::Result<PathBuf> {
+    let name = name.trim();
+    validate_name(name).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    Ok(dir.join(name))
+}
+
+fn already_exists(e: io::Error, path: &Path) -> io::Error {
+    if e.kind() == io::ErrorKind::AlreadyExists {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        io::Error::new(e.kind(), format!("\"{name}\" already exists"))
+    } else {
+        e
+    }
 }
 
 /// Renames `path` within its folder. A note renamed without an extension keeps `.md`.
@@ -311,15 +331,30 @@ mod tests {
     }
 
     #[test]
-    fn create_note_and_folder_pick_free_names() {
+    fn create_needs_a_name_and_never_overwrites() {
         let dir = tempfile::tempdir().unwrap();
-        let a = create_note(dir.path()).unwrap();
-        let b = create_note(dir.path()).unwrap();
-        assert_eq!(a.file_name().unwrap(), "Untitled.md");
-        assert_eq!(b.file_name().unwrap(), "Untitled 1.md");
-        let f = create_folder(dir.path()).unwrap();
-        assert!(f.is_dir());
-        assert_eq!(f.file_name().unwrap(), "New folder");
+        for empty in ["", "   "] {
+            assert!(create_note(dir.path(), empty).is_err());
+            assert!(create_folder(dir.path(), empty).is_err());
+        }
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "nothing created"
+        );
+
+        let note = create_note(dir.path(), " Plan ").unwrap();
+        assert_eq!(note, dir.path().join("Plan.md"));
+        assert!(create_note(dir.path(), "Plan").is_err());
+        assert_eq!(
+            create_note(dir.path(), "todo.txt").unwrap(),
+            dir.path().join("todo.txt")
+        );
+
+        let folder = create_folder(dir.path(), "Projects").unwrap();
+        assert!(folder.is_dir());
+        assert!(create_folder(dir.path(), "Projects").is_err());
+        assert!(create_folder(dir.path(), "a/b").is_err());
     }
 
     #[test]

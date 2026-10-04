@@ -22,6 +22,7 @@ pub mod services;
 mod theme;
 mod theme_css;
 mod vault;
+mod widgets;
 
 /// Re-exported so service crates build against the same egui version.
 pub use eframe::egui;
