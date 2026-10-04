@@ -2,9 +2,10 @@
 
 use eframe::egui::{self, Key};
 
-use super::{NtApp, Pending, QuickAdd, Reveal};
 use crate::quick_add;
 use crate::services::VaultEvent;
+
+use super::{NtApp, Pending, QuickAdd, Reveal};
 
 impl NtApp {
     pub(super) fn toggle_quick_add(&mut self) {

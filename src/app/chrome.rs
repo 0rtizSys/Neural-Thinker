@@ -2,15 +2,16 @@
 
 use eframe::egui::{self, KeyboardShortcut};
 
+use crate::dock::Pane;
+use crate::palette::{self};
+use crate::quick_add;
+
 use super::navigation::folder_name;
 use super::{
     NtApp, Pending, SHORTCUT_FILES, SHORTCUT_FIND, SHORTCUT_GRAPH, SHORTCUT_NEW, SHORTCUT_OPEN,
     SHORTCUT_QUICK_ADD, SHORTCUT_QUICK_CSS, SHORTCUT_QUICK_OPEN, SHORTCUT_SAVE, SHORTCUT_SAVE_AS,
     STATUS_SECONDS,
 };
-use crate::dock::Pane;
-use crate::palette::{self};
-use crate::quick_add;
 
 impl NtApp {
     pub(super) fn handle_shortcuts(&mut self, ctx: &egui::Context) {

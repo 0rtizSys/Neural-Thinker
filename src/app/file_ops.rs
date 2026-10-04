@@ -4,9 +4,10 @@ use std::path::Path;
 
 use eframe::egui::{self};
 
-use super::{NtApp, Pending};
 use crate::document::{DEFAULT_EXTENSION, Document};
 use crate::services::VaultEvent;
+
+use super::{NtApp, Pending};
 
 impl NtApp {
     pub(super) fn load(&mut self, path: &Path) {

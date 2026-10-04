@@ -7,13 +7,14 @@ use eframe::egui::{self};
 use egui::text::{CCursor, CCursorRange};
 use egui_commonmark::CommonMarkViewer;
 
+use crate::graph::Graph;
+use crate::link_complete::{self};
+use crate::outline;
+
 use super::{
     NavAction, NtApp, Reveal, SHORTCUT_FILES, SHORTCUT_GRAPH, SHORTCUT_NEW, SHORTCUT_QUICK_ADD,
     SHORTCUT_QUICK_OPEN,
 };
-use crate::graph::Graph;
-use crate::link_complete::{self};
-use crate::outline;
 
 impl NtApp {
     pub(super) fn outline_tab(&mut self, ui: &mut egui::Ui) {

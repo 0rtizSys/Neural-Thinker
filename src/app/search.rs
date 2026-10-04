@@ -4,10 +4,11 @@ use std::path::PathBuf;
 
 use eframe::egui::{self};
 
-use super::{NavAction, NtApp, Pending, Reveal, SHORTCUT_FIND, SHORTCUT_QUICK_OPEN};
 use crate::dock::Pane;
 use crate::palette::{self};
 use crate::search::NoteIndex;
+
+use super::{NavAction, NtApp, Pending, Reveal, SHORTCUT_FIND, SHORTCUT_QUICK_OPEN};
 
 impl NtApp {
     /// The note index, built now if the root folder was rescanned since.
