@@ -261,6 +261,7 @@ impl NtApp {
 impl eframe::App for NtApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::win_focus::repair();
         self.handle_close_request(&ctx);
         self.handle_focus(&ctx);
         self.handle_shortcuts(&ctx);
